@@ -351,6 +351,7 @@ HOME="$(mktemp -d)"
 export HOME MOLE_TEST_MODE=1 MOLE_SKIP_MAIN=1
 source "$PROJECT_ROOT/mole"
 show_brand_banner() { printf 'banner\n'; }
+_moremole_terminal_size() { echo "40 120"; }
 MAIN_MENU_BANNER=""
 MAIN_MENU_UPDATE_MESSAGE=""
 MAIN_MENU_SHOW_UPDATE=false
@@ -374,7 +375,7 @@ HOME="$(mktemp -d)"
 export HOME MOLE_TEST_MODE=1 MOLE_SKIP_MAIN=1
 source "$PROJECT_ROOT/mole"
 [[ -n "$GREEN" && -n "$NC" ]] || exit 1
-show_menu_option() { printf '%s' "$2"; }
+_moremole_terminal_size() { echo "40 120"; }
 line=$'\r\033[2K'
 render() {
     MAIN_MENU_BANNER=""

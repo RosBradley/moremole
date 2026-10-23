@@ -50,6 +50,8 @@ declare -a MOREMOLE_MENU_ROW_START=()
 declare -a MOREMOLE_MENU_ROW_LEN=()
 declare -a MOREMOLE_MY_NAMES=()
 declare -a MOREMOLE_MY_COMMANDS=()
+# File line number of each of the user's commands.
+declare -a MOREMOLE_MY_LINES=()
 MOREMOLE_MENU_TOP_ROW=0
 
 # Layout, set by _moremole_menu_layout.
@@ -62,16 +64,19 @@ MOREMOLE_LAYOUT_VISIBLE_ROWS=1
 moremole_read_my_commands() {
     MOREMOLE_MY_NAMES=()
     MOREMOLE_MY_COMMANDS=()
+    MOREMOLE_MY_LINES=()
     [[ -f "$MOREMOLE_MY_COMMANDS_FILE" && -r "$MOREMOLE_MY_COMMANDS_FILE" ]] || return 0
 
-    local line name command
+    local line name command number=0
     while IFS= read -r line || [[ -n "$line" ]]; do
+        number=$((number + 1))
         [[ -z "$line" || "$line" == "#"* || "$line" != *$'\t'* ]] && continue
         name="${line%%$'\t'*}"
         command="${line#*$'\t'}"
         [[ -n "$name" && -n "$command" ]] || continue
         MOREMOLE_MY_NAMES+=("$name")
         MOREMOLE_MY_COMMANDS+=("$command")
+        MOREMOLE_MY_LINES+=("$number")
     done < "$MOREMOLE_MY_COMMANDS_FILE"
 }
 
@@ -137,7 +142,10 @@ _moremole_terminal_size() {
 # how many rows fit on screen at once.
 _moremole_menu_layout() {
     local term_lines term_cols overhead i column rows
-    read -r term_lines term_cols < <(_moremole_terminal_size)
+    local size
+    size="$(_moremole_terminal_size)"
+    term_lines="${size%% *}"
+    term_cols="${size##* }"
 
     # Three columns always fit: long labels are shortened instead.
     MOREMOLE_LAYOUT_MAX_LABEL=$((term_cols / MOREMOLE_MENU_COLUMNS - 4))
@@ -315,19 +323,36 @@ _moremole_trim() {
     printf '%s' "$value"
 }
 
-# Rewrite the commands file from MOREMOLE_MY_NAMES and MOREMOLE_MY_COMMANDS.
-_moremole_save_my_commands() {
-    local dir tmp i
-    dir="$(dirname "$MOREMOLE_MY_COMMANDS_FILE")"
-    mkdir -p "$dir"
-    tmp="$MOREMOLE_MY_COMMANDS_FILE.tmp.$$"
-    {
-        printf '# moremole: your own menu commands, one per line as name<TAB>command.\n'
-        for ((i = 0; i < ${#MOREMOLE_MY_NAMES[@]}; i++)); do
-            printf '%s\t%s\n' "${MOREMOLE_MY_NAMES[i]}" "${MOREMOLE_MY_COMMANDS[i]}"
-        done
-    } > "$tmp"
-    mv -f "$tmp" "$MOREMOLE_MY_COMMANDS_FILE"
+# Append one command to the file, creating it with a short header if needed.
+# The file is only ever appended to or rewritten in place, so comments and
+# hand-written lines stay and a symlinked file keeps pointing where it did.
+_moremole_append_my_command() {
+    local file="$MOREMOLE_MY_COMMANDS_FILE"
+    mkdir -p "$(dirname "$file")"
+    if [[ ! -s "$file" ]]; then
+        printf '# moremole: your own menu commands, one per line as name<TAB>command.\n' > "$file"
+    elif [[ -n "$(tail -c 1 "$file")" ]]; then
+        # The last line has no newline yet.
+        printf '\n' >> "$file"
+    fi
+    printf '%s\t%s\n' "$1" "$2" >> "$file"
+}
+
+# Remove line $1 of the file and keep every other line as it is.
+_moremole_delete_file_line() {
+    local target="$1" line number=0
+    local -a kept=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        number=$((number + 1))
+        if ((number != target)); then
+            kept+=("$line")
+        fi
+    done < "$MOREMOLE_MY_COMMANDS_FILE"
+    if ((${#kept[@]} > 0)); then
+        printf '%s\n' "${kept[@]}" > "$MOREMOLE_MY_COMMANDS_FILE"
+    else
+        : > "$MOREMOLE_MY_COMMANDS_FILE"
+    fi
 }
 
 _moremole_add_my_command() {
@@ -347,9 +372,7 @@ _moremole_add_my_command() {
         return 0
     fi
 
-    MOREMOLE_MY_NAMES+=("$name")
-    MOREMOLE_MY_COMMANDS+=("$command")
-    _moremole_save_my_commands
+    _moremole_append_my_command "$name" "$command"
     MOREMOLE_EDIT_MESSAGE="Added \"$name\" to the menu."
 }
 
@@ -365,7 +388,13 @@ _moremole_remove_my_command() {
     IFS= read -r choice || return 0
     choice="$(_moremole_trim "$choice")"
     [[ -n "$choice" ]] || return 0
-    if [[ ! "$choice" =~ ^[0-9]+$ ]] || ((choice < 1 || choice > count)); then
+    if [[ ! "$choice" =~ ^[0-9]{1,6}$ ]]; then
+        MOREMOLE_EDIT_MESSAGE="There is no command number $choice."
+        return 0
+    fi
+    # Base 10 explicitly: arithmetic would read "08" as invalid octal.
+    choice=$((10#$choice))
+    if ((choice < 1 || choice > count)); then
         MOREMOLE_EDIT_MESSAGE="There is no command number $choice."
         return 0
     fi
@@ -378,22 +407,7 @@ _moremole_remove_my_command() {
         return 0
     fi
 
-    local -a names=() commands=()
-    local i
-    for ((i = 0; i < count; i++)); do
-        if ((i == choice - 1)); then
-            continue
-        fi
-        names+=("${MOREMOLE_MY_NAMES[i]}")
-        commands+=("${MOREMOLE_MY_COMMANDS[i]}")
-    done
-    MOREMOLE_MY_NAMES=()
-    MOREMOLE_MY_COMMANDS=()
-    if ((${#names[@]} > 0)); then
-        MOREMOLE_MY_NAMES=("${names[@]}")
-        MOREMOLE_MY_COMMANDS=("${commands[@]}")
-    fi
-    _moremole_save_my_commands
+    _moremole_delete_file_line "${MOREMOLE_MY_LINES[choice - 1]}"
     MOREMOLE_EDIT_MESSAGE="Removed \"$name\"."
 }
 

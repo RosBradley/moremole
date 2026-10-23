@@ -33,18 +33,24 @@ main() {
     [[ "$current_branch" == "$PERSONAL_BRANCH" ]] ||
         die "you're on '${current_branch:-a detached HEAD}'. Run: git checkout $PERSONAL_BRANCH"
 
-    [[ -z "$(git status --porcelain)" ]] ||
+    # Untracked files don't count; git merge still refuses to overwrite one.
+    [[ -z "$(git status --porcelain --untracked-files=no)" ]] ||
         die "there are uncommitted changes. Commit them first (git status shows them)."
 
     local old_main
     old_main="$(git rev-parse "$MIRROR_BRANCH")"
 
     printf 'Fetching %s...\n' "$UPSTREAM_REMOTE"
-    # Updating main through fetch refuses anything but a fast-forward, so a
-    # commit made on main by mistake stops the sync instead of being merged.
-    if ! git fetch "$UPSTREAM_REMOTE" "$MIRROR_BRANCH:$MIRROR_BRANCH"; then
+    git fetch "$UPSTREAM_REMOTE" "$MIRROR_BRANCH" ||
+        die "could not reach $UPSTREAM_REMOTE (see the message above). Check your internet connection and try again."
+
+    # main only ever mirrors upstream, so a commit made on it by mistake stops
+    # the sync instead of being merged.
+    git merge-base --is-ancestor "$MIRROR_BRANCH" "$UPSTREAM_REMOTE/$MIRROR_BRANCH" ||
         die "'$MIRROR_BRANCH' has commits that aren't in $UPSTREAM_REMOTE/$MIRROR_BRANCH. It should only ever mirror upstream; ask for help before going further."
-    fi
+
+    git fetch --quiet . "$UPSTREAM_REMOTE/$MIRROR_BRANCH:$MIRROR_BRANCH" ||
+        die "could not move '$MIRROR_BRANCH' forward (see the message above). If another folder has '$MIRROR_BRANCH' checked out, switch that folder to another branch and try again."
 
     local new_main
     new_main="$(git rev-parse "$MIRROR_BRANCH")"

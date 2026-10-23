@@ -105,6 +105,37 @@ cat "$MOREMOLE_MY_COMMANDS_FILE"
 	[[ "$output" == *$'Say hi\techo hi'* ]]
 }
 
+@test "removing reads numbers as decimal and keeps hand-written lines" {
+	printf '# my notes\nOne\techo 1\nnot a command\nTwo\techo 2\n' > "$HOME/.config/mole/my_commands"
+	for i in 3 4 5 6 7 8; do
+		printf 'Cmd %s\techo %s\n' "$i" "$i" >> "$HOME/.config/mole/my_commands"
+	done
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+clear() { :; }
+drain_pending_input() { :; }
+moremole_edit_my_commands < <(printf "r\n08\ny\nr\n010\nr\n02\ny\n\n")
+echo "---"
+cat "$MOREMOLE_MY_COMMANDS_FILE"
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"There is no command number 10."* ]] || return 1
+	local file="${output#*---}"
+	[ "$file" = $'\n# my notes\nOne\techo 1\nnot a command\nCmd 3\techo 3\nCmd 4\techo 4\nCmd 5\techo 5\nCmd 6\techo 6\nCmd 7\techo 7' ]
+}
+
+@test "adding keeps existing lines and starts a new line when the file lacks one" {
+	printf '# my notes\nOne\techo 1' > "$HOME/.config/mole/my_commands"
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+clear() { :; }
+drain_pending_input() { :; }
+moremole_edit_my_commands < <(printf "a\nTwo\necho 2\n\n")
+echo "---"
+cat "$MOREMOLE_MY_COMMANDS_FILE"
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[ "${output#*---}" = $'\n# my notes\nOne\techo 1\nTwo\techo 2' ]
+}
+
 @test "menu items launch the right Mole script, preview flags and own commands" {
 	printf 'Say hi\techo "hi there"\n' > "$HOME/.config/mole/my_commands"
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
@@ -119,7 +150,7 @@ moremole_menu_activate 22
 moremole_menu_activate 27
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"RUN [$PROJECT_ROOT/bin/clean.sh]"* ]] || return 1
+	[[ "$output" == *"RUN [$PROJECT_ROOT/bin/clean.sh]"$'\n'* ]] || return 1
 	[[ "$output" == *"RUN [$PROJECT_ROOT/bin/clean.sh] [--dry-run]"* ]] || return 1
 	[[ "$output" == *"RUN [$PROJECT_ROOT/bin/touchid.sh] [enable] [--dry-run]"* ]] || return 1
 	[[ "$output" == *'RUN [/bin/sh] [-c] [echo "hi there"]'* ]]
