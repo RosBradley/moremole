@@ -344,24 +344,26 @@ EOF
 	[[ "$output" == *"U Update"* ]] || return 1
 }
 
-@test "show_main_menu keeps history out of the primary menu" {
+@test "show_main_menu lists every command from the More screen (moremole)" {
 	run /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 HOME="$(mktemp -d)"
 export HOME MOLE_TEST_MODE=1 MOLE_SKIP_MAIN=1
 source "$PROJECT_ROOT/mole"
 show_brand_banner() { printf 'banner\n'; }
-show_menu_option() { printf '%s\n' "$2"; }
 MAIN_MENU_BANNER=""
 MAIN_MENU_UPDATE_MESSAGE=""
 MAIN_MENU_SHOW_UPDATE=false
 show_main_menu 1 true
 EOF
 
-	[ "$status" -eq 0 ]
-	[[ "$output" == *"Clean        Free up disk space"* ]] || return 1
-	[[ "$output" != *"History"* ]] || return 1
-	[[ "$output" != *"history"* ]]
+	[ "$status" -eq 0 ] || return 1
+	[[ "$output" == *"Clean"*"Preview"*"Protected caches"* ]] || return 1
+	[[ "$output" == *"History"*"Export"* ]] || return 1
+	[[ "$output" == *"Purge"*"Preview"*"Choose folders"* ]] || return 1
+	[[ "$output" == *"Shell completion"*"Preview"* ]] || return 1
+	[[ "$output" == *"Update from Mole"* ]] || return 1
+	[[ "$output" == *"Edit my commands..."* ]]
 }
 
 @test "show_main_menu sets the update notice off with a blank line and a green command" {
@@ -385,13 +387,13 @@ tagline="${GREEN}${MOLE_TAGLINE}${NC}"$'\n'
 # The real banner is used: command substitution strips its trailing blank line,
 # so the separator has to come from the notice itself.
 out="$(render 'Update 9.8.7 available, run mo update')"
-[[ "$out" == *"${tagline}${line}"$'\n'"${line}Update 9.8.7 available, run ${GREEN}mo update${NC}"$'\n'"${line}"$'\n'"${line}Clean"* ]] || { printf '%q\n' "$out"; exit 1; }
+[[ "$out" == *"${tagline}${line}"$'\n'"${line}Update 9.8.7 available, run ${GREEN}mo update${NC}"$'\n'"${line}"$'\n'"${line}${CYAN}${ICON_ARROW} Clean"* ]] || { printf '%q\n' "$out"; exit 1; }
 out="$(render 'New nightly commit abc1234 available, run mo update --nightly')"
-[[ "$out" == *"${tagline}${line}"$'\n'"${line}New nightly commit abc1234 available, run ${GREEN}mo update --nightly${NC}"$'\n'"${line}"$'\n'"${line}Clean"* ]] || { printf '%q\n' "$out"; exit 1; }
+[[ "$out" == *"${tagline}${line}"$'\n'"${line}New nightly commit abc1234 available, run ${GREEN}mo update --nightly${NC}"$'\n'"${line}"$'\n'"${line}${CYAN}${ICON_ARROW} Clean"* ]] || { printf '%q\n' "$out"; exit 1; }
 
 # Control: without a notice no extra rows appear between banner and options.
 out="$(render '')"
-[[ "$out" == *"${tagline}${line}"$'\n'"${line}Clean"* ]] || { printf '%q\n' "$out"; exit 1; }
+[[ "$out" == *"${tagline}${line}"$'\n'"${line}${CYAN}${ICON_ARROW} Clean"* ]] || { printf '%q\n' "$out"; exit 1; }
 
 # Rendering must not rewrite the stored text: the idle refresh compares it
 # against the plain cache contents on every tick.
