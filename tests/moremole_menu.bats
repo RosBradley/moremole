@@ -315,6 +315,9 @@ show_brand_banner
 	[[ "$output" == *"  moremole clean --dry-run           Preview cleanup"* ]] || return 1
 	[[ "$output" == *"  moremole touchid enable --dry-run  Preview Touch ID setup"* ]] || return 1
 	[[ "$output" == *"  --debug                            Show detailed operation logs"* ]] || return 1
+	[[ "$output" == *"  moremole update   "* && "$output" == *"  moremole remove --dry-run "* ]] || return 1
+	# Mole's release channels do nothing in MoreMole, so they are not offered.
+	[[ "$output" != *"update --force"* && "$output" != *"update --nightly"* ]] || return 1
 	[[ "$output" != *$'\n  mo '* ]]
 }
 

@@ -640,6 +640,8 @@ readonly MOREMOLE_HELP_COLUMN=34
 # The help screen lists commands as "moremole <command>" instead of
 # "mo <command>". Each command and option line is "  " + GREEN + the command
 # padded to 28 + NC + the description; the column widens to fit the name.
+# update --force and --nightly pick a Mole release channel, which MoreMole's
+# update does not use, so they are left out.
 show_help() {
     local line body command prefix="  ${GREEN}"
     _moremole_official_show_help | while IFS= read -r line || [[ -n "$line" ]]; do
@@ -647,6 +649,9 @@ show_help() {
         if [[ "$line" == "$prefix"* && ("$body" == "mo" || "$body" == "mo "* || "$body" == "--"*) ]]; then
             command="${body:0:28}"
             command="${command%"${command##*[![:space:]]}"}"
+            case "$command" in
+                "mo update --force" | "mo update --nightly") continue ;;
+            esac
             if [[ "$command" == "mo" || "$command" == "mo "* ]]; then
                 command="moremole${command#mo}"
             fi
