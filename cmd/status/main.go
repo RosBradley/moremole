@@ -63,6 +63,8 @@ type model struct {
 	animFrame     int
 	catHidden     bool // true = hidden, false = visible
 	cpuCores      int  // how many CPU cores to list; 0 = all
+
+	refresh time.Duration // moremole: time between refreshes; 0 = default
 }
 
 // padViewToHeight ensures the rendered frame always overwrites the full
@@ -85,6 +87,7 @@ func newModel() model {
 		collector: NewCollector(processWatchOptionsFromFlags()),
 		catHidden: loadCatHidden(),
 		cpuCores:  loadCPUCores(),
+		refresh:   loadRefreshInterval(), // moremole
 	}
 }
 
@@ -126,6 +129,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cpuCores = nextCPUCores(m.cpuCores)
 			saveCPUCores(m.cpuCores)
 			return m, nil
+		case "r":
+			// moremole: cycle the time between refreshes and persist it.
+			m.refresh = nextRefreshInterval(m.refreshEvery())
+			saveRefreshInterval(m.refresh)
+			return m, nil
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -151,7 +159,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fullCollected = true
 		}
 		m.collecting = false
-		delay := m.schedule.recordCompletion(msg, refreshInterval)
+		delay := m.schedule.recordCompletion(msg, m.refreshEvery()) // moremole
 		return m, tickAfter(delay)
 	case animTickMsg:
 		m.animFrame++
@@ -212,6 +220,7 @@ func (m model) View() string {
 			parts = append(parts, mole)
 		}
 		parts = append(parts, cardContent)
+		parts = append(parts, "", renderStatusFooter(m.refreshEvery())) // moremole
 		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 

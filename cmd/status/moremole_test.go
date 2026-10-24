@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -208,4 +209,44 @@ func TestRefreshLiveGPUUsageSkipsWithoutAGPUOrOffMacOS(t *testing.T) {
 	refreshLiveGPUUsage(&MetricsSnapshot{}, time.Now())
 	withGPUCardPlatform(t, "linux")
 	refreshLiveGPUUsage(&MetricsSnapshot{GPU: []GPUStatus{{Usage: 1}}}, time.Now())
+}
+
+func TestRefreshIntervalCyclesAndPersists(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if got := loadRefreshInterval(); got != refreshInterval {
+		t.Fatalf("default = %v, want Mole's %v", got, refreshInterval)
+	}
+	want := []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 500 * time.Millisecond, time.Second}
+	m := model{}
+	for i, w := range want {
+		next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+		m = next.(model)
+		if m.refreshEvery() != w || loadRefreshInterval() != w {
+			t.Fatalf("press %d: refresh %v, saved %v, want %v", i+1, m.refreshEvery(), loadRefreshInterval(), w)
+		}
+	}
+	savePref("refresh_interval", "3s")
+	if got := loadRefreshInterval(); got != refreshInterval {
+		t.Errorf("unknown saved value: %v, want the default", got)
+	}
+}
+
+func TestRefreshIntervalSetsTheWaitAndShowsInTheFooter(t *testing.T) {
+	withCardWidth(t, 0) // View sets the card width; restore it afterwards.
+	m := model{refresh: 5 * time.Second}
+	next, cmd := m.Update(collectionResult{mode: collectionFast, data: MetricsSnapshot{CollectedAt: time.Now()}})
+	if cmd == nil {
+		t.Fatal("no next tick scheduled")
+	}
+	m = next.(model)
+	// After the first snapshot, the next wait is the chosen interval.
+	if delay := m.schedule.recordCompletion(collectionResult{mode: collectionFast}, m.refreshEvery()); delay != 5*time.Second {
+		t.Errorf("wait = %v, want 5s", delay)
+	}
+	if footer := stripANSI(renderStatusFooter(500 * time.Millisecond)); footer != "R refresh 0.5s  ·  C cores  ·  K cat  ·  Q quit" {
+		t.Errorf("footer = %q", footer)
+	}
+	if !strings.Contains(stripANSI(m.View()), "R refresh 5s") {
+		t.Error("the frame does not show the footer")
+	}
 }

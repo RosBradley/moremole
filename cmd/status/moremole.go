@@ -1,6 +1,7 @@
 package main
 
-// moremole: Status stretches its bars to fill the window and shows a GPU card.
+// moremole: Status stretches its bars to fill the window, shows a GPU card,
+// and lets R change how often it refreshes.
 // Kept in its own file so upstream Mole updates merge with few conflicts; the
 // other files only call into it.
 
@@ -26,8 +27,8 @@ const (
 	// Disk lines end with "  1.8T used, 677G free".
 	diskValueRoom   = 24
 	ioregGPUTimeout = 1 * time.Second
-	// GPU use is read about as often as the per-second refresh runs.
-	liveGPUUsageTTL = 900 * time.Millisecond
+	// A GPU reading is reused only within one refresh, even the fastest.
+	liveGPUUsageTTL = 400 * time.Millisecond
 )
 
 // gpuCardPlatform is the platform the GPU card is shown on; tests replace it.
@@ -166,4 +167,43 @@ func readIORegGPUUtilization() float64 {
 		return -1
 	}
 	return parseIORegGPUUtilization(out)
+}
+
+// refreshIntervals is the sequence the 'r' key steps through.
+var refreshIntervals = []time.Duration{
+	500 * time.Millisecond, time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second,
+}
+
+// refreshEvery is the time between refreshes, Mole's default when unset.
+func (m model) refreshEvery() time.Duration {
+	if m.refresh <= 0 {
+		return refreshInterval
+	}
+	return m.refresh
+}
+
+// loadRefreshInterval reads the saved time between refreshes; an unset or
+// unknown value gives Mole's default.
+func loadRefreshInterval() time.Duration {
+	d, err := time.ParseDuration(loadPrefs()["refresh_interval"])
+	if err != nil || !slices.Contains(refreshIntervals, d) {
+		return refreshInterval
+	}
+	return d
+}
+
+func saveRefreshInterval(d time.Duration) {
+	savePref("refresh_interval", d.String())
+}
+
+// nextRefreshInterval returns the interval after current, wrapping around; an
+// unknown current value restarts at the first.
+func nextRefreshInterval(current time.Duration) time.Duration {
+	i := slices.Index(refreshIntervals, current)
+	return refreshIntervals[(i+1)%len(refreshIntervals)]
+}
+
+// renderStatusFooter lists the keys, with the current time between refreshes.
+func renderStatusFooter(refresh time.Duration) string {
+	return subtleStyle.Render(fmt.Sprintf("R refresh %gs  ·  C cores  ·  K cat  ·  Q quit", refresh.Seconds()))
 }
