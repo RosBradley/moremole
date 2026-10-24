@@ -120,7 +120,9 @@ if [[ $# -eq 0 ]]; then
     fi
 
     completion_name=""
-    if command -v mole > /dev/null 2>&1; then
+    if command -v moremole > /dev/null 2>&1; then
+        completion_name="moremole" # moremole
+    elif command -v mole > /dev/null 2>&1; then
         completion_name="mole"
     elif command -v mo > /dev/null 2>&1; then
         completion_name="mo"
@@ -373,11 +375,11 @@ _mole_completions()
     fi
 }
 
-complete -F _mole_completions mole mo
+complete -F _mole_completions mole mo moremole mm
 EOF
         ;;
     zsh)
-        printf '#compdef mole mo\n\n'
+        printf '#compdef mole mo moremole mm\n\n'
         printf '_mole() {\n'
         printf '    local -a subcommands\n'
         printf '    subcommands=(\n'
@@ -427,7 +429,7 @@ EOF
         printf '            ;;\n'
         printf '    esac\n'
         printf '}\n\n'
-        printf 'compdef _mole mole mo\n'
+        printf 'compdef _mole mole mo moremole mm\n'
         ;;
     fish)
         printf '# Completions for mole\n'

@@ -114,9 +114,9 @@ setup() {
 @test "mole --help prints command overview" {
 	run env HOME="$HOME" "$PROJECT_ROOT/mole" --help
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"mo clean"* ]] || return 1
-	[[ "$output" == *"mo optimize"* ]] || return 1
-	[[ "$output" == *"mo analyze"* ]] || return 1
+	[[ "$output" == *"moremole clean"* ]] || return 1
+	[[ "$output" == *"moremole optimize"* ]] || return 1
+	[[ "$output" == *"moremole analyze"* ]] || return 1
 	[[ "$output" != *"mo optimise"* ]]
 }
 
@@ -207,7 +207,7 @@ SCRIPT
 	ln -s "$PROJECT_ROOT/mole" "$link_dir/mole"
 	run env HOME="$HOME" "$link_dir/mole" --help
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"mo clean"* ]] || return 1
+	[[ "$output" == *"moremole clean"* ]] || return 1
 }
 
 @test "mole invoked through a Homebrew-style prefix symlink still sources lib" {
@@ -221,7 +221,7 @@ SCRIPT
 	ln -s "$cellar/mole" "$prefix/bin/mole"
 	run env HOME="$HOME" "$prefix/bin/mole" --help
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"mo clean"* ]] || return 1
+	[[ "$output" == *"moremole clean"* ]] || return 1
 }
 
 @test "mole --version shows nightly channel metadata" {
@@ -298,7 +298,7 @@ EOF
 @test "mole --help documents history command" {
 	run env HOME="$HOME" "$PROJECT_ROOT/mole" --help
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"mo history"* ]]
+	[[ "$output" == *"moremole history"* ]]
 }
 
 @test "mole check is not a public command" {

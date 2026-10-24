@@ -50,6 +50,7 @@ install() {
 	[ "$(readlink "$FAKE_HOME/.local/bin/mm")" = "$REPO/mole" ] || return 1
 	[ "$("$FAKE_HOME/.local/bin/mm")" = "MOREMOLE" ] || return 1
 	[[ "$output" == *"Open a new Terminal window"* ]] || return 1
+	[[ "$output" == *"To set up Tab completion for moremole and mm, run: moremole completion"* ]] || return 1
 
 	run install
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }

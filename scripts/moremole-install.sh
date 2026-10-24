@@ -4,8 +4,9 @@
 # Links both names in ~/.local/bin to this folder's `mole`, so updates to the
 # folder take effect at once; adds ~/.local/bin to PATH in ~/.zshrc when it is
 # missing; replaces an older `alias mm=` line; builds Analyze and Status when
-# they were never built; and offers to remove the official Mole when Homebrew
-# installed it. Safe to run again.
+# they were never built; offers to remove the official Mole when Homebrew
+# installed it; and offers Tab completion for moremole and mm. Safe to run
+# again.
 #
 # Usage: bash scripts/moremole-install.sh
 
@@ -126,6 +127,17 @@ main() {
 
     offer_official_removal
     report_other_mole
+
+    # Mole's own completion setup asks before it changes ~/.zshrc and replaces
+    # an earlier Mole completion line. ~/.local/bin goes first on PATH so it
+    # finds moremole even before a new window loads the PATH line.
+    printf '\n'
+    if [[ -t 0 ]]; then
+        PATH="$LINK_DIR:$PATH" "$repo_root/mole" completion ||
+            printf 'Tab completion was not set up. To try again, run: moremole completion\n'
+    else
+        printf 'To set up Tab completion for moremole and mm, run: moremole completion\n'
+    fi
 
     printf '\nDone. '
     if [[ "$NEW_WINDOW_NEEDED" == "true" ]]; then

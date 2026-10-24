@@ -261,6 +261,73 @@ show_brand_banner
 	[ "$(printf '%s\n' "$output" | awk '/Mole version/ {print $NF; exit}')" = "$expected" ]
 }
 
+@test "the help screen names commands moremole, in one aligned column" {
+	run env HOME="$HOME" NO_COLOR=1 "$PROJECT_ROOT/mole" --help
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"  moremole clean --dry-run           Preview cleanup"* ]] || return 1
+	[[ "$output" == *"  moremole touchid enable --dry-run  Preview Touch ID setup"* ]] || return 1
+	[[ "$output" == *"  --debug                            Show detailed operation logs"* ]] || return 1
+	[[ "$output" != *$'\n  mo '* ]]
+}
+
+@test "update notices say run moremole update" {
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+mkdir -p "$HOME/.cache/mole"
+printf "Update 9.8.7 available, run mo update\n" > "$HOME/.cache/mole/update_message"
+read_update_message_cache "$HOME/.cache/mole/update_message"
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[ "$output" = "Update 9.8.7 available, run moremole update" ]
+}
+
+@test "V and M show their screen and return to the menu" {
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+show_main_menu() { echo "MENU_DRAWN"; }
+show_help() { echo "HELP_SHOWN"; }
+show_version() { echo "VERSION_SHOWN"; }
+hide_cursor() { :; }
+show_cursor() { :; }
+clear() { :; }
+drain_pending_input() { :; }
+keys=(MORE VERSION QUIT)
+read_key() {
+    local n=0
+    [[ -f "$HOME/key-count" ]] && n=$(cat "$HOME/key-count")
+    echo $((n + 1)) > "$HOME/key-count"
+    echo "${keys[n]}"
+}
+rm -f "$HOME/key-count"
+interactive_main_menu < <(printf "\n\n")
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"HELP_SHOWN"*"Press Enter to return to the menu."*"MENU_DRAWN"*"VERSION_SHOWN"*"Press Enter"*"MENU_DRAWN"* ]]
+}
+
+@test "Tab completion covers moremole and mm, and setup uses the moremole command" {
+	run "$PROJECT_ROOT/bin/completion.sh" zsh
+	[ "$status" -eq 0 ] || return 1
+	[[ "$output" == *"#compdef mole mo moremole mm"* ]] || return 1
+	[[ "$output" == *"compdef _mole mole mo moremole mm"* ]] || return 1
+	run "$PROJECT_ROOT/bin/completion.sh" bash
+	[[ "$output" == *"complete -F _mole_completions mole mo moremole mm"* ]] || return 1
+
+	mkdir -p "$HOME/stub-bin"
+	printf '#!/bin/bash\n' > "$HOME/stub-bin/moremole"
+	chmod +x "$HOME/stub-bin/moremole"
+	run env HOME="$HOME" SHELL=/bin/zsh MOLE_DRY_RUN=1 PATH="$HOME/stub-bin:/usr/bin:/bin" \
+		"$PROJECT_ROOT/bin/completion.sh"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	# shellcheck disable=SC2016  # Literal ~/.zshrc text, not an expansion.
+	[[ "$output" == *'if output="$(moremole completion zsh 2>/dev/null)"; then eval "$output"; fi'* ]] || return 1
+
+	# The line it writes is recognized again, so a rerun replaces it.
+	run /bin/bash --noprofile --norc -c '
+source "$1/lib/core/base.sh"
+grep -Eq "$MOLE_COMPLETION_LINE_PATTERN" <<< "if output=\"\$(moremole completion zsh 2>/dev/null)\"; then eval \"\$output\"; fi"
+' _ "$PROJECT_ROOT"
+	[ "$status" -eq 0 ]
+}
+
 @test "update_mole runs the moremole sync script instead of installing Mole" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 SCRIPT_DIR="$HOME/fork"

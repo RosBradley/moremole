@@ -277,18 +277,8 @@ interactive_main_menu() {
             "CHAR:5")
                 launch_menu_command "$SCRIPT_DIR/bin/status.sh"
                 ;;
-            "MORE")
-                show_cursor
-                clear
-                show_help
-                exit 0
-                ;;
-            "VERSION")
-                show_cursor
-                clear
-                show_version
-                exit 0
-                ;;
+            "MORE") moremole_show_and_return show_help ;;       # moremole
+            "VERSION") moremole_show_and_return show_version ;; # moremole
             "TOUCHID")
                 show_cursor
                 exec "$SCRIPT_DIR/bin/touchid.sh"

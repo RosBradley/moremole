@@ -29,7 +29,7 @@ readonly MOREMOLE_BUILTIN_ROWS=(
     "Installer files|mole|installer|Find and remove installer files;Preview|mole|installer --dry-run|Show what would be removed, without removing anything"
     "Slim Intel code|mole|slim|Remove Intel code from universal apps;Preview|mole|slim --dry-run|Show what Slim would remove, without removing anything"
     "Touch ID|mole|touchid|Use Touch ID for sudo;Preview|mole|touchid enable --dry-run|Show what Touch ID setup would change, without changing it"
-    "Shell completion|mole|completion|Set up tab completion for mo;Preview|mole|completion --dry-run|Show the shell setup edits, without making them"
+    "Shell completion|mole|completion|Set up Tab completion for moremole and mm;Preview|mole|completion --dry-run|Show the shell setup edits, without making them"
     "Update from Mole|update||Bring in Mole's latest changes and keep moremole's"
 )
 readonly MOREMOLE_SECTION_LABEL="My commands"
@@ -564,6 +564,57 @@ show_brand_banner() {
         printf '%s%s%s\n%s%s%s\n' "$BLUE" "$MOREMOLE_REPO_URL" "$NC" "$GREEN" "$MOLE_TAGLINE" "$NC"
     fi
     printf '\n'
+}
+
+# Show a screen such as help or version, then come back to the menu.
+moremole_show_and_return() {
+    local answer=""
+    show_cursor
+    clear
+    "$@"
+    printf '%sPress Enter to return to the menu.%s' "$GRAY" "$NC"
+    IFS= read -r answer || true
+    hide_cursor
+    clear
+}
+
+# Mole's own help screen and update notice, kept so new commands still show.
+if declare -F show_help > /dev/null; then
+    eval "$(declare -f show_help | sed '1s/^show_help /_moremole_official_show_help /')"
+fi
+if declare -F read_update_message_cache > /dev/null; then
+    eval "$(declare -f read_update_message_cache | sed '1s/^read_update_message_cache /_moremole_official_read_update_message_cache /')"
+fi
+
+# Width of the command column on the help screen: Mole's 28 plus the longer
+# "moremole" name.
+readonly MOREMOLE_HELP_COLUMN=34
+
+# The help screen lists commands as "moremole <command>" instead of
+# "mo <command>". Each command and option line is "  " + GREEN + the command
+# padded to 28 + NC + the description; the column widens to fit the name.
+show_help() {
+    local line body command prefix="  ${GREEN}"
+    _moremole_official_show_help | while IFS= read -r line || [[ -n "$line" ]]; do
+        body="${line#"$prefix"}"
+        if [[ "$line" == "$prefix"* && ("$body" == "mo" || "$body" == "mo "* || "$body" == "--"*) ]]; then
+            command="${body:0:28}"
+            command="${command%"${command##*[![:space:]]}"}"
+            if [[ "$command" == "mo" || "$command" == "mo "* ]]; then
+                command="moremole${command#mo}"
+            fi
+            printf '  %s%-*s%s\n' "$GREEN" "$MOREMOLE_HELP_COLUMN" "$command" "${body:28}" 2> /dev/null || return 0
+        else
+            printf '%s\n' "$line" 2> /dev/null || return 0
+        fi
+    done
+}
+
+# Update notices say "run moremole update", which runs the moremole update.
+read_update_message_cache() {
+    local message
+    message="$(_moremole_official_read_update_message_cache "$@")"
+    printf '%s' "${message//run mo update/run moremole update}"
 }
 
 # Mole's own version screen, kept so its system details stay current.
