@@ -20,7 +20,6 @@ MOREMOLE_MY_COMMANDS_FILE="$HOME/.config/mole/my_commands"
 # word>.sh with the remaining words; "update" runs update_mole.
 readonly MOREMOLE_BUILTIN_ROWS=(
     "Clean|mole|clean|Free up disk space;Preview|mole|clean --dry-run|Show what Clean would remove, without removing anything;Protected caches|mole|clean --whitelist|Choose caches that Clean must never remove"
-    "Uninstall|mole|uninstall|Remove apps completely;Preview|mole|uninstall --dry-run|Show what Uninstall would remove, without removing anything"
     "Optimize|mole|optimize|Refresh caches and services;Preview|mole|optimize --dry-run|Show what Optimize would do, without changing anything;Protected items|mole|optimize --whitelist|Choose items that Optimize must leave alone"
     "Analyze|mole|analyze|Explore disk usage;External drives|mole|analyze /Volumes|Explore disk usage on external drives only"
     "Status|mole|status|Monitor system health"
@@ -31,6 +30,7 @@ readonly MOREMOLE_BUILTIN_ROWS=(
     "Touch ID|mole|touchid|Use Touch ID for sudo;Preview|mole|touchid enable --dry-run|Show what Touch ID setup would change, without changing it"
     "Shell completion|mole|completion|Set up Tab completion for moremole and mm;Preview|mole|completion --dry-run|Show the shell setup edits, without making them"
     "Software updates|mole|moremole-updates|Update apps, tools and macOS;Preview|mole|moremole-updates --dry-run|List available updates, without installing anything"
+    "Software removal|mole|uninstall|Remove apps completely;Preview|mole|uninstall --dry-run|Show what Software removal would remove, without removing anything"
     "Update MoreMole|update||Get the latest MoreMole and Mole changes, and rebuild if needed"
 )
 readonly MOREMOLE_SECTION_LABEL="My commands"
@@ -359,7 +359,7 @@ _moremole_command_title() {
     local title
     case "${1##*/}" in
         clean.sh) title="Clean" ;;
-        uninstall.sh) title="Uninstall" ;;
+        uninstall.sh) title="Software removal" ;;
         optimize.sh) title="Optimize" ;;
         moremole-updates.sh) title="Software updates" ;;
         *) title="$(_moremole_command_heading "$1")" ;;

@@ -67,9 +67,9 @@ for key in RIGHT RIGHT RIGHT DOWN DOWN RIGHT DOWN LEFT LEFT UP TOP UP BOTTOM DOW
 done
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	# Row 1 holds items 1-3, Uninstall 4-5, Optimize 6-8, Analyze 9-10;
+	# Row 1 holds items 1-3, Optimize 4-6, Analyze 7-8, Status 9;
 	# Update is 27, the section heading 28 is skipped, Add is 29.
-	[ "$output" = "2 3 3 5 7 8 10 9 9 6 1 1 29 29 27 29 " ]
+	[ "$output" = "2 3 3 6 8 8 9 9 9 7 1 1 29 29 27 29 " ]
 }
 
 @test "a long list scrolls to keep the selection visible" {
@@ -188,7 +188,9 @@ SHELL=/bin/sh
 moremole_load_menu_items
 moremole_menu_activate 1
 moremole_menu_activate 2
-moremole_menu_activate 22
+moremole_menu_activate 20
+moremole_menu_activate 23
+moremole_menu_activate 24
 moremole_menu_activate 25
 moremole_menu_activate 26
 moremole_menu_activate 30
@@ -201,6 +203,8 @@ echo "STILL_IN_MENU"
 	[[ "$output" == *"RUN [$PROJECT_ROOT/bin/touchid.sh] [enable] [--dry-run]"* ]] || return 1
 	[[ "$output" == *"RUN [$PROJECT_ROOT/bin/moremole-updates.sh]"$'\n'* ]] || return 1
 	[[ "$output" == *"RUN [$PROJECT_ROOT/bin/moremole-updates.sh] [--dry-run]"* ]] || return 1
+	# Software removal sits under Software updates.
+	[[ "$output" == *"moremole-updates.sh] [--dry-run]"$'\n'*"RUN [$PROJECT_ROOT/bin/uninstall.sh]"$'\n'*"RUN [$PROJECT_ROOT/bin/uninstall.sh] [--dry-run]"* ]] || return 1
 	[[ "$output" == *'RUN [/bin/sh] [-c] [echo "hi there"]'* ]]
 }
 
@@ -217,7 +221,7 @@ hide_cursor() { :; }
 show_cursor() { :; }
 clear() { :; }
 drain_pending_input() { :; }
-keys=(ENTER DOWN DOWN DOWN DOWN ENTER QUIT)
+keys=(ENTER DOWN DOWN DOWN ENTER QUIT)
 read_key() {
     local n=0
     [[ -f "$HOME/key-count" ]] && n=$(cat "$HOME/key-count")
