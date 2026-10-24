@@ -698,6 +698,7 @@ confirm_slim_selection() {
             ;;
     esac
     printf '\n'
+    moremole_note_cancel
     return 1
 }
 
@@ -789,6 +790,7 @@ main() {
     if ! select_slim_apps; then
         show_cursor
         printf '\n'
+        moremole_note_cancel
         return 0
     fi
     show_cursor

@@ -1037,6 +1037,7 @@ main() {
             return 1
             ;;
         1)
+            moremole_note_cancel
             printf '\n'
             ;;
         2)

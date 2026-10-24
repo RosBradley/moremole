@@ -2221,6 +2221,7 @@ main() {
                 # selector that broke gets the visible abort below.
                 stop_uninstall_interactive_screen
                 show_cursor
+                moremole_note_cancel
                 return 0
             fi
             uninstall_abort "application selection did not complete"

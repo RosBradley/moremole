@@ -383,7 +383,7 @@ render() {
     MAIN_MENU_SHOW_UPDATE=true
     show_main_menu 1 true
 }
-tagline="${GREEN}${MOLE_TAGLINE}${NC}"$'\n'
+tagline="${GREEN}${MOREMOLE_TAGLINE[1]}${NC}"$'\n'
 
 # The real banner is used: command substitution strips its trailing blank line,
 # so the separator has to come from the notice itself.

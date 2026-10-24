@@ -549,6 +549,8 @@ main() {
         return 1
     fi
 
+    echo -e "${PURPLE_BOLD}Software updates${NC}"
+    printf '\n'
     if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
         echo -e "${YELLOW}${ICON_DRY_RUN} DRY RUN MODE${NC}, nothing will be installed"
         printf '\n'
@@ -576,13 +578,17 @@ main() {
     if ! select_updates; then
         show_cursor
         printf '\n'
+        moremole_note_cancel
         return 0
     fi
     show_cursor
 
     local -a indices=()
     IFS=',' read -ra indices <<< "$MOLE_SELECTION_RESULT"
-    confirm_updates "${indices[@]}" || return 0
+    if ! confirm_updates "${indices[@]}"; then
+        moremole_note_cancel
+        return 0
+    fi
 
     install_updates "${indices[@]}"
     show_updates_summary

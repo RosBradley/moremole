@@ -242,7 +242,11 @@ perform_purge() {
     cleanup_monitor
 
     case "$purge_outcome" in
-        no_candidates | cancelled) return 0 ;;
+        no_candidates) return 0 ;;
+        cancelled)
+            moremole_note_cancel
+            return 0
+            ;;
         scan_failed) return 1 ;;
         completed | incomplete) ;;
         *)

@@ -566,6 +566,7 @@ prompt_for_system_clean() {
         # starts typing their password) proceeds to authentication.
         if [[ "$choice" == "QUIT" ]]; then
             echo -e " ${GRAY}Canceled${NC}"
+            moremole_note_cancel
             exit 0
         fi
 

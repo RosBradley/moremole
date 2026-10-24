@@ -234,6 +234,44 @@ interactive_main_menu < <(printf "\n")
 	[[ "$after_status" != *"Press Enter"* ]]
 }
 
+@test "each command opens on a clear screen, and a cancelled one comes straight back" {
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+export TMPDIR="$HOME/tmp"
+mkdir -p "$TMPDIR"
+SCRIPT_DIR="$HOME/fake"
+mkdir -p "$SCRIPT_DIR/bin"
+printf "#!/bin/bash\necho RAN_installer\n" > "$SCRIPT_DIR/bin/installer.sh"
+printf "#!/bin/bash\necho RAN_touchid\n" > "$SCRIPT_DIR/bin/touchid.sh"
+# The cancel goes through the real note, as Mole commands send it.
+printf "#!/bin/bash\nsource \"%s/lib/moremole/cancel.sh\"\necho RAN_slim\nmoremole_note_cancel\n" "$PROJECT_ROOT" > "$SCRIPT_DIR/bin/slim.sh"
+chmod +x "$SCRIPT_DIR"/bin/*.sh
+hide_cursor() { :; }
+show_cursor() { :; }
+clear() { echo CLEARED; }
+drain_pending_input() { :; }
+echo "== installer"
+moremole_run_and_return "$SCRIPT_DIR/bin/installer.sh" --dry-run < <(printf "\n")
+echo "== slim"
+moremole_run_and_return "$SCRIPT_DIR/bin/slim.sh" < /dev/null
+echo "== touchid"
+moremole_run_and_return "$SCRIPT_DIR/bin/touchid.sh" < <(printf "q")
+echo "== left: $(find "$TMPDIR" -mindepth 1 | wc -l | tr -d " ")"
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	local installer="${output#*== installer}" slim="${output#*== slim}" touchid="${output#*== touchid}"
+	installer="${installer%%== slim*}"
+	slim="${slim%%== touchid*}"
+	touchid="${touchid%%== left*}"
+	# The menu is cleared first, and commands without a heading get one.
+	[[ "$installer" == $'\nCLEARED\nInstaller files\n\nRAN_installer\n'*"Press Enter or Q to return to the menu."*"CLEARED"* ]] || return 1
+	# A cancelled command skips the Enter prompt.
+	[[ "$slim" == $'\nCLEARED\nSlim Intel code\n\nRAN_slim\nCLEARED\n' ]] || return 1
+	# Touch ID starts its own screen with a blank line, so no second one.
+	[[ "$touchid" == $'\nCLEARED\nTouch ID\nRAN_touchid\n'*"Press Enter"* ]] || return 1
+	# The cancel marker folders are gone.
+	[[ "$output" == *"== left: 0"* ]]
+}
+
 @test "the banner says MoreMole and points to the moremole repository" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 show_brand_banner
@@ -246,11 +284,17 @@ show_brand_banner
 	# The logo spells MoreMole: its last row ends in the "Mole" letters.
 	[[ "$wide" == *'|_|  |_|\___/|_|  \___|_|  |_|\___/|_|\___|'* ]] || return 1
 	[[ "$wide" != *"mole.fit"* ]] || return 1
-	# Wide: the address and tagline sit beside the logo's last two rows.
-	[[ "$wide" == *'__/  github.com/RosBradley/moremole'* ]] || return 1
-	[[ "$wide" == *'\___|  Deep clean and optimize your Mac.'* ]] || return 1
+	# Wide: the address and the two tagline lines sit beside the logo's
+	# last three rows, and no row is wider than 80 columns.
+	[[ "$wide" == *'/ _ \  github.com/RosBradley/moremole'* ]] || return 1
+	[[ "$wide" == *'__/  Deep clean and optimize your Mac.'* ]] || return 1
+	[[ "$wide" == *'\___|  Manage, update and remove apps.'* ]] || return 1
+	local row
+	while IFS= read -r row; do
+		[ "${#row}" -le 80 ] || { echo "too wide: $row"; return 1; }
+	done <<< "$wide"
 	# Narrow: they move under the logo, each on its own line.
-	[[ "$narrow" == *$'\ngithub.com/RosBradley/moremole\nDeep clean and optimize your Mac.'* ]]
+	[[ "$narrow" == *$'\ngithub.com/RosBradley/moremole\nDeep clean and optimize your Mac.\nManage, update and remove apps.'* ]]
 }
 
 @test "the version screen names MoreMole and credits Mole" {

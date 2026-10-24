@@ -38,6 +38,9 @@ readonly MOREMOLE_ADD_LABEL="+ Add a command"
 readonly MOREMOLE_ADD_DESC="Add your own command to this menu"
 readonly MOREMOLE_MENU_COLUMNS=3
 readonly MOREMOLE_REPO_URL="github.com/RosBradley/moremole"
+# Two short lines, so the banner stays within 80 columns: Mole's own line,
+# then what MoreMole adds.
+readonly MOREMOLE_TAGLINE=("Deep clean and optimize your Mac." "Manage, update and remove apps.")
 
 # Lines around the items besides the banner: the line under the banner (blank,
 # or "more above"); a blank line and the description; a blank line and the
@@ -341,26 +344,57 @@ _moremole_wait_to_return() {
     printf '\n'
 }
 
-# Run a command, then come back to the menu. Full-screen commands (Analyze,
-# Status) return straight away; others wait for Enter so their output can be
-# read first. Also used by the 1-5 shortcuts in mole.
+# The heading shown above a command that has no heading of its own.
+_moremole_command_heading() {
+    case "${1##*/}" in
+        touchid.sh) printf 'Touch ID' ;;
+        installer.sh) printf 'Installer files' ;;
+        slim.sh) printf 'Slim Intel code' ;;
+        completion.sh) printf 'Shell completion' ;;
+    esac
+}
+
+# Run a command on a screen of its own, then come back to the menu.
+# Full-screen commands (Analyze, Status) and commands the user cancelled
+# (lib/moremole/cancel.sh) return straight away; others wait for Enter so
+# their output can be read first. Also used by the 1-5 shortcuts in mole.
 moremole_run_and_return() {
     show_cursor
     drain_pending_input 0.1
+    clear
+    local heading
+    heading="$(_moremole_command_heading "$1")"
+    if [[ -n "$heading" ]]; then
+        printf '%s%s%s\n' "$PURPLE_BOLD" "$heading" "$NC"
+        # Touch ID's own screen already starts with a blank line.
+        [[ "$1" == */bin/touchid.sh && $# -eq 1 ]] || printf '\n'
+    fi
+    local cancel_dir="" cancelled=false
+    cancel_dir="$(mktemp -d "${TMPDIR:-/tmp}/moremole-cancel.XXXXXX" 2> /dev/null)" || cancel_dir=""
     # Ctrl-C stops the command, not the menu, whose own handler would quit.
     # The command starts with the default action, so it still stops.
     trap ':' INT
-    (run_mole_command "$@") || true
+    (
+        [[ -z "$cancel_dir" ]] || export MOREMOLE_CANCEL_FILE="$cancel_dir/cancelled"
+        run_mole_command "$@"
+    ) || true
     if declare -F cleanup_and_exit > /dev/null; then
         trap cleanup_and_exit INT
     else
         trap - INT
     fi
+    if [[ -n "$cancel_dir" ]]; then
+        [[ ! -e "$cancel_dir/cancelled" ]] || cancelled=true
+        rm -f "$cancel_dir/cancelled" # SAFE: marker inside this run's own mktemp folder
+        rmdir "$cancel_dir" 2> /dev/null || true
+    fi
     case "$1" in
         */bin/analyze.sh | */bin/status.sh) ;;
         *)
-            printf '\n'
-            _moremole_wait_to_return
+            if [[ "$cancelled" != "true" ]]; then
+                printf '\n'
+                _moremole_wait_to_return
+            fi
             ;;
     esac
     hide_cursor
@@ -565,8 +599,9 @@ show_brand_banner() {
         for ((i = 0; i < ${#art[@]}; i++)); do
             line="$(printf '%s%-43s%s' "$GREEN" "${art[i]}" "$NC")"
             case "$i" in
-                3) line+="  ${BLUE}${MOREMOLE_REPO_URL}${NC}" ;;
-                4) line+="  ${GREEN}${MOLE_TAGLINE}${NC}" ;;
+                2) line+="  ${BLUE}${MOREMOLE_REPO_URL}${NC}" ;;
+                3) line+="  ${GREEN}${MOREMOLE_TAGLINE[0]}${NC}" ;;
+                4) line+="  ${GREEN}${MOREMOLE_TAGLINE[1]}${NC}" ;;
             esac
             printf '%s\n' "$line"
         done
@@ -574,7 +609,8 @@ show_brand_banner() {
         for line in "${art[@]}"; do
             printf '%s%s%s\n' "$GREEN" "$line" "$NC"
         done
-        printf '%s%s%s\n%s%s%s\n' "$BLUE" "$MOREMOLE_REPO_URL" "$NC" "$GREEN" "$MOLE_TAGLINE" "$NC"
+        printf '%s%s%s\n' "$BLUE" "$MOREMOLE_REPO_URL" "$NC"
+        printf '%s%s%s\n' "$GREEN" "${MOREMOLE_TAGLINE[0]}" "$NC" "$GREEN" "${MOREMOLE_TAGLINE[1]}" "$NC"
     fi
     printf '\n'
 }

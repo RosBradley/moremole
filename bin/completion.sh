@@ -174,6 +174,7 @@ if [[ $# -eq 0 ]]; then
             case "$key" in
                 $'\e' | [Qq] | [Nn])
                     echo -e "${YELLOW}Cancelled${NC}"
+                    moremole_note_cancel
                     exit 0
                     ;;
                 "" | $'\n' | $'\r' | [Yy]) ;;
@@ -285,6 +286,7 @@ if [[ $# -eq 0 ]]; then
     case "$key" in
         $'\e' | [Qq] | [Nn])
             echo -e "${YELLOW}Cancelled${NC}"
+            moremole_note_cancel
             exit 0
             ;;
         "" | $'\n' | $'\r' | [Yy]) ;;
