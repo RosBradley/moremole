@@ -36,12 +36,13 @@ readonly MOREMOLE_SECTION_LABEL="My commands"
 readonly MOREMOLE_ADD_LABEL="+ Add a command"
 readonly MOREMOLE_ADD_DESC="Add your own command to this menu"
 readonly MOREMOLE_MENU_COLUMNS=3
+readonly MOREMOLE_REPO_URL="github.com/RosBradley/moremole"
 
-# Lines show_main_menu prints around the items: a blank line, the five-line
-# banner and a blank line above; a blank line and the description, then a
-# blank line, the controls and a blank line below; plus the row the cursor
-# rests on so the last line cannot scroll.
-readonly MOREMOLE_MENU_OVERHEAD=13
+# Lines show_main_menu prints around the items besides the banner: a blank
+# line above the banner and one below it; a blank line and the description,
+# then a blank line, the controls and a blank line below; plus the row the
+# cursor rests on so the last line cannot scroll.
+readonly MOREMOLE_MENU_OVERHEAD=8
 
 # One entry per menu item, in reading order (row by row, left to right).
 declare -a MOREMOLE_MENU_LABELS=()
@@ -183,7 +184,11 @@ _moremole_menu_layout() {
     done
 
     rows=${#MOREMOLE_MENU_ROW_START[@]}
-    overhead=$MOREMOLE_MENU_OVERHEAD
+    local banner="${MAIN_MENU_BANNER:-}" banner_lines=5
+    if [[ -n "$banner" ]]; then
+        banner_lines=$(printf '%s\n' "$banner" | wc -l)
+    fi
+    overhead=$((MOREMOLE_MENU_OVERHEAD + banner_lines))
     if [[ -n "${MAIN_MENU_UPDATE_MESSAGE:-}" ]]; then
         overhead=$((overhead + 2))
     fi
@@ -529,6 +534,38 @@ _moremole_remove_my_command() {
     fi
     MOREMOLE_MENU_SELECTED=$(_moremole_my_command_item "$number")
     MOREMOLE_MENU_NOTICE="Removed \"$name\"."
+}
+
+# The MoreMole banner, used by the menu and the help screen in place of
+# Mole's. The repository and tagline sit beside the logo when the window is
+# wide enough, else under it.
+show_brand_banner() {
+    local -a art=(
+        ' __  __                __  __       _'
+        '|  \/  | ___  _ __ ___|  \/  | ___ | | ___'
+        "| |\\/| |/ _ \\| '__/ _ \\ |\\/| |/ _ \\| |/ _ \\"
+        '| |  | | (_) | | |  __/ |  | | (_) | |  __/'
+        '|_|  |_|\___/|_|  \___|_|  |_|\___/|_|\___|'
+    )
+    local size cols line i
+    size="$(_moremole_terminal_size)"
+    cols="${size##* }"
+    if ((cols >= 80)); then
+        for ((i = 0; i < ${#art[@]}; i++)); do
+            line="$(printf '%s%-43s%s' "$GREEN" "${art[i]}" "$NC")"
+            case "$i" in
+                3) line+="  ${BLUE}${MOREMOLE_REPO_URL}${NC}" ;;
+                4) line+="  ${GREEN}${MOLE_TAGLINE}${NC}" ;;
+            esac
+            printf '%s\n' "$line"
+        done
+    else
+        for line in "${art[@]}"; do
+            printf '%s%s%s\n' "$GREEN" "$line" "$NC"
+        done
+        printf '%s%s%s\n%s%s%s\n' "$BLUE" "$MOREMOLE_REPO_URL" "$NC" "$GREEN" "$MOLE_TAGLINE" "$NC"
+    fi
+    printf '\n'
 }
 
 # Mole's own updater, kept for copies that are not the moremole git folder.

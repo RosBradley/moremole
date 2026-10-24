@@ -230,6 +230,25 @@ interactive_main_menu < <(printf "\n")
 	[[ "$after_status" != *"Press Enter"* ]]
 }
 
+@test "the banner says MoreMole and points to the moremole repository" {
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+show_brand_banner
+echo "---"
+_moremole_terminal_size() { echo "40 60"; }
+show_brand_banner
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	local wide="${output%%---*}" narrow="${output#*---}"
+	# The logo spells MoreMole: its last row ends in the "Mole" letters.
+	[[ "$wide" == *'|_|  |_|\___/|_|  \___|_|  |_|\___/|_|\___|'* ]] || return 1
+	[[ "$wide" != *"mole.fit"* ]] || return 1
+	# Wide: the address and tagline sit beside the logo's last two rows.
+	[[ "$wide" == *'__/  github.com/RosBradley/moremole'* ]] || return 1
+	[[ "$wide" == *'\___|  Deep clean and optimize your Mac.'* ]] || return 1
+	# Narrow: they move under the logo, each on its own line.
+	[[ "$narrow" == *$'\ngithub.com/RosBradley/moremole\nDeep clean and optimize your Mac.'* ]]
+}
+
 @test "update_mole runs the moremole sync script instead of installing Mole" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 SCRIPT_DIR="$HOME/fork"
