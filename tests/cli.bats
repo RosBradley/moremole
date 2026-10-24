@@ -363,7 +363,7 @@ EOF
 	[[ "$output" == *"History"*"Export"* ]] || return 1
 	[[ "$output" == *"Purge"*"Preview"*"Choose folders"* ]] || return 1
 	[[ "$output" == *"Shell completion"*"Preview"* ]] || return 1
-	[[ "$output" == *"Update from Mole"* ]] || return 1
+	[[ "$output" == *"Update MoreMole"* ]] || return 1
 	[[ "$output" == *"+ Add a command"* ]]
 }
 

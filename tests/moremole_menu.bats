@@ -35,7 +35,7 @@ moremole_show_menu_items 1
 printf "count=%s\n" "${#MOREMOLE_MY_NAMES[@]}"
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"Update from Mole"$'\n'*"── My commands ──"$'\n'*"+ Add a command"$'\n'* ]] || return 1
+	[[ "$output" == *"Update MoreMole"$'\n'*"── My commands ──"$'\n'*"+ Add a command"$'\n'* ]] || return 1
 	[[ "$output" == *"+ Add a command"$'\n'*"  Flush DNS"*"Edit"*"Remove"$'\n'*"  Say hi"*"Edit"*"Remove"$'\n'* ]] || return 1
 	[[ "$output" == *"count=2"* ]] || return 1
 	[[ "$output" != *"no tab here"* ]]
