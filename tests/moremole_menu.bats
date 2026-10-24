@@ -234,6 +234,91 @@ interactive_main_menu < <(printf "\n")
 	[[ "$after_status" != *"Press Enter"* ]]
 }
 
+@test "a finished command's output opens on the results screen, with Clean's file list on F" {
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+export TMPDIR="$HOME/tmp"
+mkdir -p "$TMPDIR" "$HOME/.config/mole"
+SCRIPT_DIR="$HOME/fake"
+mkdir -p "$SCRIPT_DIR/bin"
+# Clean writes its file list; the other command leaves an old one alone.
+printf "#!/bin/bash\necho RAN_clean \"\$*\"\necho list > \"\$HOME/.config/mole/clean-list.txt\"\n" > "$SCRIPT_DIR/bin/clean.sh"
+printf "#!/bin/bash\necho RAN_history\n" > "$SCRIPT_DIR/bin/history.sh"
+printf "#!/bin/bash\nsource \"%s/lib/moremole/cancel.sh\"\necho RAN_slim\nmoremole_note_cancel\n" "$PROJECT_ROOT" > "$SCRIPT_DIR/bin/slim.sh"
+# The viewer reports what it was given and the recording it read.
+cat > "$SCRIPT_DIR/bin/moremole-view-go" << "VIEWER"
+#!/bin/bash
+echo "VIEW $(printf "%s|" "$@")"
+echo "RECORDED: $(cat "${@: -1}")"
+VIEWER
+chmod +x "$SCRIPT_DIR"/bin/*
+hide_cursor() { :; }
+show_cursor() { :; }
+clear() { echo CLEARED; }
+drain_pending_input() { :; }
+_moremole_terminal_size() { echo "30 100"; }
+_moremole_can_record() { return 0; }
+_moremole_record() { local log="$1"; shift; "$@" > "$log"; }
+moremole_load_menu_items
+echo "== preview"
+moremole_menu_activate 2 < /dev/null
+echo "== history"
+touch -t 202001010000 "$HOME/.config/mole/clean-list.txt"
+MOREMOLE_RUN_TITLE="History" moremole_run_and_return "$SCRIPT_DIR/bin/history.sh" < /dev/null
+echo "== slim"
+moremole_run_and_return "$SCRIPT_DIR/bin/slim.sh" < /dev/null
+echo "== left: $(find "$TMPDIR" -mindepth 1 | wc -l | tr -d " ")"
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	local preview="${output#*== preview}" history="${output#*== history}" slim="${output#*== slim}"
+	preview="${preview%%== history*}"
+	history="${history%%== slim*}"
+	slim="${slim%%== left*}"
+	# The row and the variant name the screen; F gets the list Clean just wrote.
+	[[ "$preview" == *"VIEW --title|Clean · Preview|--rows|30|--cols|100|--file|$HOME/.config/mole/clean-list.txt|$HOME/tmp/moremole-run."*"/output|"* ]] || { echo "$output"; return 1; }
+	[[ "$preview" == *"RECORDED: RAN_clean --dry-run"* ]] || return 1
+	[[ "$preview" != *"Press Enter"* ]] || return 1
+	# An old file list is not offered.
+	[[ "$history" == *"VIEW --title|History|--rows|30|--cols|100|$HOME/tmp/"* && "$history" != *"--file"* ]] || return 1
+	# A cancelled command skips the results screen.
+	[[ "$slim" != *"VIEW"* && "$slim" != *"Press Enter"* ]] || return 1
+	[[ "$output" == *"== left: 0"* ]]
+}
+
+@test "the menu waits for Enter when the results screen cannot open" {
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+SCRIPT_DIR="$HOME/fake"
+mkdir -p "$SCRIPT_DIR/bin"
+printf "#!/bin/bash\necho RAN_history\n" > "$SCRIPT_DIR/bin/history.sh"
+printf "#!/bin/bash\nexit 1\n" > "$SCRIPT_DIR/bin/moremole-view-go"
+chmod +x "$SCRIPT_DIR"/bin/*
+hide_cursor() { :; }
+show_cursor() { :; }
+clear() { :; }
+drain_pending_input() { :; }
+_moremole_can_record() { return 0; }
+_moremole_record() { local log="$1"; shift; "$@" > "$log"; }
+moremole_run_and_return "$SCRIPT_DIR/bin/history.sh" < <(printf "\n")
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"Press Enter or Q to return to the menu."* ]]
+}
+
+@test "my own commands show their name and command line above their output" {
+	printf 'Say hi\techo hi\n' > "$HOME/.config/mole/my_commands"
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+hide_cursor() { :; }
+show_cursor() { :; }
+clear() { echo CLEARED; }
+drain_pending_input() { :; }
+run_mole_command() { "$@"; }
+SHELL=/bin/sh
+moremole_load_menu_items
+moremole_menu_activate 30 < <(printf "\n")
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == $'CLEARED\nSay hi\n$ echo hi\n\nhi\n'*"Press Enter"* ]]
+}
+
 @test "each command opens on a clear screen, and a cancelled one comes straight back" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 export TMPDIR="$HOME/tmp"

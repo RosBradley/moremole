@@ -74,6 +74,7 @@ mole-analyze
 bin/analyze-go
 bin/status-go
 bin/moremole-updates-go
+bin/moremole-view-go
 bin/analyze-darwin-*
 bin/status-darwin-*
 

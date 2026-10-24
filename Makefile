@@ -38,12 +38,13 @@ mod-download:
 	exit 1
 
 # Local build (current architecture)
-# MoreMole: also builds the Software updates helper.
+# MoreMole: also builds the Software updates helper and the results screen.
 build: mod-download
 	@echo "Building for local architecture..."
 	$(GO) build -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/$(ANALYZE)-go $(ANALYZE_SRC)
 	$(GO) build -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/$(STATUS)-go $(STATUS_SRC)
 	$(GO) build -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/moremole-updates-go ./cmd/moremole-updates
+	$(GO) build -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/moremole-view-go ./cmd/moremole-view
 
 check:
 	./scripts/check.sh --no-format
