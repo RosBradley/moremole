@@ -1,9 +1,10 @@
 # moremole
 
-moremole is a personal fork of [Mole](https://github.com/tw93/Mole). It keeps everything Mole does and changes three things:
+moremole is a personal fork of [Mole](https://github.com/tw93/Mole). It keeps everything Mole does and changes four things:
 
-- **The main menu lists every command** from Mole's More screen (M), not just the first five. Each command has its own row, with its preview (dry-run) and other variants beside it.
-- **You can add your own commands to the menu** with "Edit my commands...".
+- **The main menu lists every command** from Mole's More screen (M), not just the first five. Each command has its own row, with its preview (dry-run) and other variants beside it, and a line under the menu describes the highlighted item.
+- **You can add your own commands to the menu** with "Edit my commands...". They get a section of their own.
+- **Commands return to the menu** when they finish.
 - **Update brings in Mole's latest changes and keeps moremole's.** Mole's own update would install the official release over this folder and erase them.
 
 The moremole changes live in their own files, so Mole's updates merge cleanly:
@@ -48,13 +49,18 @@ make build
   Touch ID               Preview
   Shell completion       Preview
   Update from Mole
-  Edit my commands...    Flush DNS
+  ── My commands ──
+  Edit my commands...
+  Flush DNS
+
+  Free up disk space
 ```
 
 - Move with the arrow keys and press Enter. Preview shows what a command would do without doing it.
 - 1 to 5 still start Clean, Uninstall, Optimize, Analyze and Status directly. M, V, T, U and Q work as before.
-- As in Mole, choosing a command leaves the menu and runs it; type `mm` to come back.
-- A window too short for every row scrolls, and says so under the list.
+- When a command finishes, press Enter to come back to the menu. Analyze and Status come back as soon as you quit them. Ctrl-C stops the command and also comes back.
+- Update from Mole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version.
+- A window too short for every row scrolls with the arrow keys, and says so under the list.
 
 ## Your own commands
 
@@ -64,7 +70,7 @@ Choose **Edit my commands...**, then:
 - **R** removes one by its number, after you confirm.
 - **Enter** goes back to the menu.
 
-Your commands appear after "Edit my commands...". Each runs with your shell (`$SHELL -c`), in the folder you started moremole from. Aliases from `~/.zshrc` aren't loaded there, so use the full command. Commands that use `sudo` ask for your password as usual.
+Your commands appear under "Edit my commands...", one per row. Each runs with your shell (`$SHELL -c`), in the folder you started moremole from. Aliases from `~/.zshrc` aren't loaded there, so use the full command. Commands that use `sudo` ask for your password as usual.
 
 They're saved in `~/.config/mole/my_commands`, one per line as name, a Tab, then the command. You can edit that file directly; lines starting with `#` are ignored.
 
