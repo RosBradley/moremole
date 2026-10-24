@@ -5,7 +5,7 @@ moremole is a personal fork of [Mole](https://github.com/tw93/Mole) by tw93, mod
 - **The banner says MoreMole** and points to this repository, on the menu and the help screen. Its tagline keeps Mole's line, "Deep clean and optimize your Mac.", and adds "Manage, update and remove apps." The version screen (V) credits Mole and shows the moremole commit that is running.
 - **The main menu lists every command** from Mole's More screen (M), not just the first five. Each command has its own row, with its preview (dry-run) and other variants beside it, and a line under the menu describes the highlighted item.
 - **You can add your own commands to the menu,** and edit or remove them, right in the menu. They get a section of their own.
-- **Commands open on their own screen, and their results stay on a screen you scroll like the menu,** with Clean's file list one key away. A cancelled command returns to the menu straight away.
+- **Commands run inside a MoreMole screen:** the title stays at the top and the keys at the bottom while the command's output scrolls between them, like the menu. When it finishes you scroll back through everything it printed, with Clean's file list one key away. A cancelled command returns to the menu straight away.
 - **Status fills the window:** its bars stretch with the window, it lists every CPU core, and it has a GPU card.
 - **Software updates** finds updates for Homebrew apps and tools, App Store apps and macOS, and installs the ones you pick.
 - **Update brings in Mole's latest changes and keeps moremole's.** Mole's own update would install the official release over this folder and erase them.
@@ -19,7 +19,7 @@ The moremole changes live in their own files, so Mole's updates merge cleanly:
 | `bin/moremole-updates.sh`, `cmd/moremole-updates/` | Software updates: the screen, and the Go helper that finds updates |
 | `lib/moremole/commands.sh` | Adds `updates` to help and Tab completion |
 | `lib/moremole/cancel.sh` | Lets a cancelled command tell the menu to come straight back |
-| `cmd/moremole-view/` | The results screen |
+| `cmd/moremole-view/` | The command screen: runs a command inside the fixed frame, then shows its results |
 | `scripts/moremole-sync.sh` | Brings in Mole's latest changes |
 | `tests/moremole_*.bats`, `cmd/status/moremole_test.go`, `cmd/moremole-updates/*_test.go`, `cmd/moremole-view/*_test.go` | Tests for the above |
 | `mole`, `Makefile`, `lib/core/commands.sh`, `lib/core/common.sh`, `cmd/status/*.go` | A few marked lines (`moremole`) that hook the above in |
@@ -40,7 +40,7 @@ The installer:
 
 - links `moremole` and `mm` in `~/.local/bin` to this folder, so updates take effect straight away, and adds `~/.local/bin` to `PATH` in `~/.zshrc` if it isn't there;
 - replaces an older `alias mm=` line in `~/.zshrc`;
-- builds Analyze, Status, Software updates and the results screen, which are written in Go, if one of them was never built (install Go first with `brew install go`); after that, the update rebuilds them whenever they change;
+- builds Analyze, Status, Software updates and the command screen, which are written in Go, if one of them was never built (install Go first with `brew install go`); after that, the update rebuilds them whenever they change;
 - offers Tab completion for `moremole` and `mm`, asking before it changes `~/.zshrc` (later: `moremole completion`);
 - offers to remove the official Mole if Homebrew installed it, with `brew uninstall mole`, which keeps `~/.config/mole`. Don't use Mole's own `mo remove` for this: it also moves `~/.config/mole`, including your MoreMole commands, to the Trash;
 - links Mole's own names, `mo` and `mole`, to MoreMole too, so scripts written for Mole keep working. A name that already runs something else, such as an official Mole you kept, stays as it is; run the installer again after removing that Mole to take the name over.
@@ -49,7 +49,7 @@ It's safe to run again. To undo it, delete `moremole`, `mm`, `mo` and `mole` fro
 
 ## Scripts and the command line
 
-Every command works from the command line and in scripts as in Mole: same commands, options, output and exit codes, and `moremole status --json` is unchanged. The menu's additions (own screens, the results screen, cancel) only happen when a command runs from the menu. The differences:
+Every command works from the command line and in scripts as in Mole: same commands, options, output and exit codes, and `moremole status --json` is unchanged. The menu's additions (the command screen, cancel) only happen when a command runs from the menu. The differences:
 
 - `moremole update` (and `mo update` once `mo` runs MoreMole) brings in Mole's latest changes and rebuilds, instead of installing a Mole release; the help screen leaves out Mole's `--force` and `--nightly`, which MoreMole's update does not use.
 - `moremole updates` (Software updates) is new.
@@ -82,11 +82,13 @@ Every command works from the command line and in scripts as in Mole: same comman
 - Move with the arrow keys and press Enter. Preview shows what a command would do without doing it.
 - 1 to 5 still start Clean, Uninstall, Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter or Q; T, U and Q work as before.
 - The help screen and update notices name commands `moremole ...` instead of `mo ...`.
-- Each command opens on a clear screen. Touch ID, Installer files, Slim, Shell completion and Software updates show their name at the top; the others already show their own.
-- When a command finishes, its output moves to the results screen, named after the menu item (for example "Clean · Preview") and opened at the end, where the summary is. Scroll with the arrow keys, PgUp and PgDn, or Home and End; in most terminals the trackpad scrolls it too. Enter, Q or ESC returns to the menu.
-- After Clean's Preview, **F** on the results screen shows the list of files Clean would remove (`~/.config/mole/clean-list.txt`, which stays where Mole puts it), long paths wrapped in full; Q goes back to the results.
-- The results screen keeps the colors and drops what was only on screen for a moment: progress spinners, pick lists, and screens a command cleared. The menu also clears the terminal's scrollback before and after each command, so output never piles up behind the menu.
-- Analyze and Status come back as soon as you quit them. Ctrl-C stops a command and shows what it printed so far.
+- Each command runs on the command screen, named after the menu item (for example "Clean · Preview"). The title row stays at the top and a key row at the bottom; the command's output scrolls between them, and the terminal itself never scrolls.
+- While the command runs, keys go to it: its prompts, passwords and pick lists work as usual, and Ctrl-C stops it.
+- When it finishes, the same screen shows everything it printed, opened at the end, where the summary is. Scroll with the arrow keys, PgUp and PgDn, or Home and End; in most terminals the trackpad scrolls it too. Enter, Q or ESC returns to the menu.
+- After Clean's Preview, **F** shows the list of files Clean would remove (`~/.config/mole/clean-list.txt`, which stays where Mole puts it), long paths wrapped in full; Q goes back to the results.
+- The results keep the colors and drop what was only on screen for a moment: progress spinners, pick lists, and screens a command cleared.
+- Analyze and Status are full-screen already and run on their own; they come back as soon as you quit them.
+- If the command screen is not built yet, commands run on a clear screen and the menu asks for Enter afterwards, as before.
 - If you cancel instead (Q or ESC in a pick list, or at the final "Enter confirm, ESC cancel" step), the menu comes back straight away, with nothing to dismiss. This covers Clean's password step, Uninstall, Purge, Installer files, Slim, Touch ID, Shell completion, Software updates and the Protected caches and Protected items lists.
 - Update MoreMole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version.
 - A window too short for every row scrolls with the arrow keys, and says so under the list.
@@ -145,4 +147,4 @@ Choose **Update MoreMole** in the menu, press U when an update notice shows, or 
 bash scripts/moremole-sync.sh
 ```
 
-It first brings down any moremole changes already on GitHub, then copies Mole's latest changes into `main`, merges them into the `moremole` branch, and pushes both to GitHub. When one of the Go parts (Analyze, Status, Software updates, the results screen) is older than its code, including after a `git pull`, it rebuilds them (`make build`). It stops and says what to do if you have uncommitted changes, are on another branch, or if Mole changed the same lines as moremole.
+It first brings down any moremole changes already on GitHub, then copies Mole's latest changes into `main`, merges them into the `moremole` branch, and pushes both to GitHub. When one of the Go parts (Analyze, Status, Software updates, the command screen) is older than its code, including after a `git pull`, it rebuilds them (`make build`). It stops and says what to do if you have uncommitted changes, are on another branch, or if Mole changed the same lines as moremole.
