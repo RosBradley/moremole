@@ -185,6 +185,7 @@ func (m model) View() string {
 			if cardWidth > 2 {
 				cardWidth -= 2
 			}
+			statusCardWidth = cardWidth // moremole: bars fill the card
 			cards := buildCards(m.metrics, cardWidth, cpuCores, m.fullCollected)
 
 			var rendered []string
@@ -197,6 +198,7 @@ func (m model) View() string {
 			cardContent = lipgloss.JoinVertical(lipgloss.Left, rendered...)
 		} else {
 			cardWidth := max(24, termWidth/2-4)
+			statusCardWidth = cardWidth // moremole: bars fill the card
 			cards := buildCards(m.metrics, cardWidth, cpuCores, m.fullCollected)
 			cardContent = renderTwoColumns(cards, termWidth)
 		}

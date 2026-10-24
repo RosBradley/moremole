@@ -538,7 +538,7 @@ func formatDiskLine(label string, d DiskStatus) string {
 	if label == "" {
 		label = "DISK"
 	}
-	bar := progressBar(d.UsedPercent)
+	bar := diskProgressBar(d.UsedPercent) // moremole: leaves room for the text
 	used := humanBytesShort(d.Used)
 	free := uint64(0)
 	if d.Total > d.Used {
@@ -646,7 +646,7 @@ func renderProcessCard(procs []ProcessInfo, cardWidth int) cardData {
 
 func processBar(percent float64, cardWidth int) string {
 	if cardWidth >= processWideMinWidth {
-		return progressBar(percent)
+		return classicProgressBar(percent) // moremole: names keep their room
 	}
 	return miniBar(percent)
 }
@@ -706,6 +706,9 @@ func buildCards(m MetricsSnapshot, width int, cpuCores int, batteryProbed bool) 
 		renderBatteryCard(m.Batteries, m.Thermal, batteryProbed),
 		processCard,
 		renderNetworkCard(m.Network, m.NetworkHistory, m.Proxy, width),
+	}
+	if gpuCard, ok := renderGPUCard(m.GPU); ok { // moremole
+		cards = append(cards, gpuCard)
 	}
 	// Sensors card disabled - redundant with CPU temp
 	// if hasSensorData(m.Sensors) {
@@ -967,28 +970,12 @@ func progressBar(percent float64) string {
 }
 
 func plainProgressBar(percent float64) string {
-	total := 16
-	if percent < 0 {
-		percent = 0
-	}
-	if percent > 100 {
-		percent = 100
-	}
-	filled := int(percent / 100 * float64(total))
-
-	var builder strings.Builder
-	for i := range total {
-		if i < filled {
-			builder.WriteString("█")
-		} else {
-			builder.WriteString("░")
-		}
-	}
-	return builder.String()
+	// moremole: bars stretch to fill the card.
+	return barOfWidth(percent, statusBarWidth())
 }
 
 func batteryProgressBar(percent float64) string {
-	total := 16
+	total := statusBarWidth() // moremole: stretches like the other bars
 	if percent < 0 {
 		percent = 0
 	}
