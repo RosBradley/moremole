@@ -1,0 +1,139 @@
+#!/bin/bash
+# moremole: set up the `moremole` command, with `mm` as a short name for it.
+#
+# Links both names in ~/.local/bin to this folder's `mole`, so updates to the
+# folder take effect at once; adds ~/.local/bin to PATH in ~/.zshrc when it is
+# missing; replaces an older `alias mm=` line; builds Analyze and Status when
+# they were never built; and offers to remove the official Mole when Homebrew
+# installed it. Safe to run again.
+#
+# Usage: bash scripts/moremole-install.sh
+
+set -euo pipefail
+
+readonly LINK_DIR="$HOME/.local/bin"
+readonly LINK_NAMES=(moremole mm)
+readonly SHELL_RC="$HOME/.zshrc"
+readonly PATH_MARKER="# moremole: commands in ~/.local/bin"
+
+die() {
+    printf 'Stopped: %s\n' "$1" >&2
+    exit 1
+}
+
+# Point $LINK_DIR/$1 at $2, replacing only an existing link.
+link_command() {
+    local link="$LINK_DIR/$1" target="$2"
+    if [[ -e "$link" && ! -L "$link" ]]; then
+        die "$link already exists and is not a link. Move it aside, then run this again."
+    fi
+    ln -sfn "$target" "$link"
+    printf '  %s -> %s\n' "$link" "$target"
+}
+
+# Add ~/.local/bin to PATH in ~/.zshrc unless it is already on PATH or added.
+ensure_path() {
+    case ":$PATH:" in
+        *":$LINK_DIR:"*) return 0 ;;
+    esac
+    if [[ -f "$SHELL_RC" ]] && grep -qF "$PATH_MARKER" "$SHELL_RC"; then
+        return 0
+    fi
+    # shellcheck disable=SC2016  # $HOME and $PATH expand when ~/.zshrc runs.
+    printf '\n%s\nexport PATH="$HOME/.local/bin:$PATH"\n' "$PATH_MARKER" >> "$SHELL_RC"
+    printf 'Added ~/.local/bin to PATH in %s.\n' "$SHELL_RC"
+    NEW_WINDOW_NEEDED=true
+}
+
+# Drop an `alias mm=` line that points at moremole; the mm link replaces it.
+# Other lines stay byte for byte, and a symlinked ~/.zshrc is written in place.
+remove_old_alias() {
+    [[ -f "$SHELL_RC" ]] || return 0
+    local pattern='^[[:space:]]*alias mm=.*moremole/mole["'"'"']?[[:space:]]*$'
+    grep -qE "$pattern" "$SHELL_RC" || return 0
+    local kept
+    kept="$(grep -vE "$pattern" "$SHELL_RC" || true)"
+    printf '%s\n' "$kept" > "$SHELL_RC"
+    printf 'Removed the old "alias mm=" line from %s; the mm command replaces it.\n' "$SHELL_RC"
+    NEW_WINDOW_NEEDED=true
+}
+
+# Offer to remove the official Mole when Homebrew installed it. Homebrew's
+# uninstall leaves ~/.config/mole, which MoreMole uses too, in place.
+offer_official_removal() {
+    command -v brew > /dev/null 2>&1 || return 0
+    brew list --formula mole > /dev/null 2>&1 || return 0
+    printf '\nThe official Mole (the mo command) is installed with Homebrew.\n'
+    if [[ ! -t 0 ]]; then
+        printf 'To remove it, run: brew uninstall mole\n'
+        return 0
+    fi
+    local answer=""
+    printf 'Remove it? Your settings in ~/.config/mole stay. (y/N): '
+    IFS= read -r answer || answer=""
+    if [[ "$answer" == "y" || "$answer" == "Y" ]]; then
+        brew uninstall mole
+        hash -r
+    else
+        printf 'Kept. Remove it later with: brew uninstall mole\n'
+    fi
+}
+
+# Report a Mole that was not installed by Homebrew without touching it: its
+# own `mo remove` would also move ~/.config/mole, and your commands, to Trash.
+report_other_mole() {
+    # A Homebrew Mole was already offered for removal above.
+    if command -v brew > /dev/null 2>&1 && brew list --formula mole > /dev/null 2>&1; then
+        return 0
+    fi
+    local name path
+    for name in mo mole; do
+        path="$(command -v "$name" 2> /dev/null || true)"
+        [[ -n "$path" && "$path" == /* ]] || continue
+        printf '\nAnother Mole is still installed: %s\n' "$path"
+        printf 'It was not installed with Homebrew. Do not remove it with "mo remove",\n'
+        printf 'which also moves ~/.config/mole, and your MoreMole commands, to the Trash.\n'
+        return 0
+    done
+}
+
+main() {
+    local repo_root
+    repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    [[ -x "$repo_root/mole" && -f "$repo_root/lib/moremole/menu.sh" ]] ||
+        die "this script must stay in the scripts folder of your moremole folder."
+
+    NEW_WINDOW_NEEDED=false
+
+    printf 'Setting up the moremole and mm commands:\n'
+    mkdir -p "$LINK_DIR"
+    local name
+    for name in "${LINK_NAMES[@]}"; do
+        link_command "$name" "$repo_root/mole"
+    done
+    ensure_path
+    remove_old_alias
+
+    if [[ ! -x "$repo_root/bin/analyze-go" || ! -x "$repo_root/bin/status-go" ]]; then
+        if command -v go > /dev/null 2>&1; then
+            printf '\nBuilding Analyze and Status...\n'
+            (cd "$repo_root" && make build) ||
+                die "the build failed (see the message above). The commands are set up; fix the problem, then run: make build"
+        else
+            printf '\nAnalyze and Status need Go to build. Install it with: brew install go, then run: make build\n'
+        fi
+    fi
+
+    offer_official_removal
+    report_other_mole
+
+    printf '\nDone. '
+    if [[ "$NEW_WINDOW_NEEDED" == "true" ]]; then
+        printf 'Open a new Terminal window, then type moremole or mm.\n'
+    else
+        printf 'Type moremole or mm.\n'
+    fi
+}
+
+main "$@"
+exit
