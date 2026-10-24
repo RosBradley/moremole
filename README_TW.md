@@ -483,11 +483,9 @@ Raycast 裝好後要手動設定一次：
 - 如果 Mole 幫到了你，歡迎給予 Star、[分享給朋友](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.)，或在 GitHub 提交 Issue 和 PR
 - 我養了兩隻貓，湯圓和可樂，如果 Mole 用著順手，歡迎請她們吃一頓 <a href="https://cats.tw93.fun?name=Mole" target="_blank">罐頭 🥩</a>
 
-<details>
-<summary>已經請客的好心人 🐱</summary>
-<br/>
-<a href="https://cats.tw93.fun?name=Mole"><img src="https://cdn.jsdelivr.net/gh/tw93/sponsors@main/assets/sponsors.svg" alt="贊助者" width="1000" loading="lazy" /></a>
-</details>
+已經請客的好心人 🐱
+
+<a href="https://cats.tw93.fun?name=Mole"><img src="https://raw.githubusercontent.com/tw93/sponsors/main/assets/sponsors.svg" alt="贊助者" width="1000" loading="lazy" /></a>
 
 ## 開源授權條款
 

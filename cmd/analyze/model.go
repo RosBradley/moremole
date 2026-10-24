@@ -265,6 +265,8 @@ type model struct {
 	liveScanCancel      context.CancelFunc
 	liveScanEvents      <-chan liveScanEventMsg
 	liveScanningPaths   map[string]bool
+	liveEntryIndex      map[string]int
+	liveEntriesDirty    bool
 	autoSortLiveEntries bool
 	liveSortMode        liveSortMode
 }
@@ -430,6 +432,7 @@ func (m *model) removePathFromView(path string) {
 	// shift the shared array twice and corrupt it; rebuilding via the filters
 	// keeps the view, the query, and the selection consistent.
 	m.entriesAll = removeByPath(m.entriesAll, path, dirEntryPath)
+	m.liveEntryIndex = nil
 	m.largeFilesAll = removeByPath(m.largeFilesAll, path, fileEntryPath)
 
 	if removedSize > 0 {

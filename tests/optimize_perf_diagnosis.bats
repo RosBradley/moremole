@@ -16,6 +16,7 @@ setup_file() {
         source '$PROJECT_ROOT/lib/core/common.sh'
         source '$PROJECT_ROOT/lib/optimize/diagnostics.sh'
         sysctl() { echo 'total = 8192.00M  used = 100.00M  free = 8092.00M'; }
+        SYSCTL_CMD=sysctl
         memory_pressure() { echo 'System-wide memory free percentage: 80%'; }
         out=\$(opt_diag_memory_pressure)
         [ -z \"\$out\" ] && echo SILENT || echo \"LEAKED: \$out\"
@@ -29,6 +30,7 @@ setup_file() {
         source '$PROJECT_ROOT/lib/core/common.sh'
         source '$PROJECT_ROOT/lib/optimize/diagnostics.sh'
         sysctl() { echo 'total = 16384.00M  used = 15500.00M  free = 884.00M'; }
+        SYSCTL_CMD=sysctl
         memory_pressure() { echo 'System-wide memory free percentage: 8%'; }
         ps() { printf '%s\n' '   RSS COMM' '8600000 com.apple.Virtualization.VirtualMachine' '2000000 /usr/local/bin/codex' '500 tiny'; }
         opt_diag_memory_pressure
@@ -183,6 +185,9 @@ setup_file() {
 set -euo pipefail
 names='MOLE_SKIP_TRASH_CLEANUP|MOLE_SUPPORT_CACHE_AGE_DAYS|MOLE_CLAUDE_VM_ORPHAN_AGE_DAYS|MOLE_MENU_SORT_DEFAULT'
 names+='|MOLE_OPTIMIZE_(SWAP_PCT|FREE_PCT|IDLE_VM_GB|RUNAWAY_PCT|RUNAWAY_MIN_HOURS|DIAG_CPU_THRESHOLD|DIAG_SAMPLE_DELAY)'
+# Weekly audit 2026-10-22: seven more overrides nothing documented or tested.
+names+='|MOLE_APP_SUPPORT_ITEM_SIZE_TIMEOUT_SEC|MOLE_EXTERNAL_VOLUME_SCAN_TIMEOUT|MOLE_LARGE_CANDIDATE_SIZE_TIMEOUT'
+names+='|MOLE_HOMEBREW_UPDATE_TIMEOUT|MOLE_HOMEBREW_UPGRADE_TIMEOUT|MOLE_PKG_RECEIPT_CACHE_TTL|MOLE_OPERATIONS_LOG'
 pattern="[$][{]?($names)([^A-Za-z0-9_]|$)"
 probe='    local x="${MOLE_SUPPORT_CACHE_AGE_DAYS:-30}"'
 printf '%s\n' "$probe" | grep -qE "$pattern" || { echo "matcher missed a known positive"; exit 1; }
@@ -202,6 +207,7 @@ EOF
         source '$PROJECT_ROOT/lib/core/common.sh'
         source '$PROJECT_ROOT/lib/optimize/diagnostics.sh'
         sysctl() { echo 'total = 16384.00M  used = 15500.00M  free = 884.00M'; }
+        SYSCTL_CMD=sysctl
         memory_pressure() { echo 'System-wide memory free percentage: 8%'; }
         ps() { printf '%s\n' '   RSS COMM' '8600000 com.apple.Virtualization.VirtualMachine' '2000000 codex'; }
         opt_diag_memory_pressure | sed 's/\x1b\[[0-9;]*m//g' | grep -E '^    [^ ]' |
@@ -227,6 +233,7 @@ EOF
         source '$PROJECT_ROOT/lib/core/common.sh'
         source '$PROJECT_ROOT/lib/optimize/diagnostics.sh'
         sysctl() { echo 'total = 1024.00M  used = 900.00M  free = 124.00M'; }
+        SYSCTL_CMD=sysctl
         memory_pressure() { echo 'System-wide memory free percentage: 8%'; }
         ps() { printf '%s\n' '   RSS COMM' '100 tiny'; }
         opt_diag_memory_pressure

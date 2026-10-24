@@ -2487,6 +2487,8 @@ func TestLiveScanDefaultCursorStaysOnFirstRowAcrossReorder(t *testing.T) {
 		result: scanResult{TotalSize: 10},
 	})
 	m = updated.(model)
+	updated, _ = m.Update(tickMsg(time.Now()))
+	m = updated.(model)
 	if got := []string{m.entries[0].Path, m.entries[1].Path}; !slices.Equal(got, []string{b, a}) {
 		t.Fatalf("expected live sort to reorder by size, got %v", got)
 	}
@@ -2582,7 +2584,11 @@ func TestLiveScanContinuousSortKeepsCursorByPath(t *testing.T) {
 		result: scanResult{TotalSize: 10},
 	})
 	m = updated.(model)
+	updated, _ = m.Update(tickMsg(time.Now()))
+	m = updated.(model)
 	updated, _ = m.updateKey(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	updated, _ = m.Update(tickMsg(time.Now()))
 	m = updated.(model)
 	if m.entries[m.selected].Path != a {
 		t.Fatalf("expected selection to move to a before reorder, got selected=%d entries=%+v", m.selected, m.entries)
@@ -2595,6 +2601,8 @@ func TestLiveScanContinuousSortKeepsCursorByPath(t *testing.T) {
 		entry:  dirEntry{Name: "a", Path: a, Size: 100, IsDir: true},
 		result: scanResult{TotalSize: 100},
 	})
+	m = updated.(model)
+	updated, _ = m.Update(tickMsg(time.Now()))
 	m = updated.(model)
 	if got := []string{m.entries[0].Path, m.entries[1].Path}; !slices.Equal(got, []string{a, b}) {
 		t.Fatalf("expected live sort to continue after navigation, got %v", got)
@@ -2629,7 +2637,11 @@ func TestLiveScanSortCanFreezeAfterNavigationKey(t *testing.T) {
 		result: scanResult{TotalSize: 10},
 	})
 	m = updated.(model)
+	updated, _ = m.Update(tickMsg(time.Now()))
+	m = updated.(model)
 	updated, _ = m.updateKey(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(model)
+	updated, _ = m.Update(tickMsg(time.Now()))
 	m = updated.(model)
 	if m.autoSortLiveEntries {
 		t.Fatalf("expected freeze-on-move to disable live sort")
@@ -2643,6 +2655,8 @@ func TestLiveScanSortCanFreezeAfterNavigationKey(t *testing.T) {
 		entry:  dirEntry{Name: "a", Path: a, Size: 100, IsDir: true},
 		result: scanResult{TotalSize: 100},
 	})
+	m = updated.(model)
+	updated, _ = m.Update(tickMsg(time.Now()))
 	m = updated.(model)
 	after := []string{m.entries[0].Path, m.entries[1].Path}
 	if !slices.Equal(before, after) {

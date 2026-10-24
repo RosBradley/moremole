@@ -70,11 +70,15 @@ def check_menu(columns):
             return data
 
         try:
-            frame = receive(b'/ Search')
-            assert b'O A-Z' in frame, plain(frame)
+            frame = receive(b'Enter Save')
+            app_rows = [line for line in plain(frame).splitlines() if ' | Unknown' in line]
+            assert len(app_rows) == 5 and 'alph' in app_rows[0] and 'Zebra' in app_rows[-1], app_rows
             assert_fits(frame, 16, columns)
             os.write(master, b'o')
-            frame = receive(b'O Z-A')
+            frame = receive(b'Enter Save')
+            # Verify the actual order even when the order hint is hidden.
+            app_rows = [line for line in plain(frame).splitlines() if ' | Unknown' in line]
+            assert len(app_rows) == 5 and 'Zebra' in app_rows[0] and 'alph' in app_rows[-1], app_rows
             assert_fits(frame, 16, columns)
             # An unrecognized sequence (Shift+Up) must not leak bytes into
             # the query, while a later paste is still kept whole.

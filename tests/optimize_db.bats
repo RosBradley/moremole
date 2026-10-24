@@ -112,6 +112,61 @@ EOF
 	[[ "$output" == *"busy or locked"* ]]
 }
 
+@test "notification refresh targets only its current-user launchd service" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+resolve_notification_center_db() { printf '%s\n' "$HOME/nc.db"; }
+opt_existing_file_size_kb_strict() { echo 60000; }
+sqlite3() { :; }
+trace="$HOME/notification-refresh.trace"
+run_with_timeout() { printf '%s\n' "$*" > "$trace"; }
+# A name-based kill would also reach an unrelated program named NotificationCenter.
+killall() { echo "UNSAFE_NAME_KILL" > "$trace"; }
+execute_optimization notification_cleanup
+[[ "$(cat "$trace")" == "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC /bin/launchctl kill SIGTERM gui/$UID/com.apple.notificationcenterui.agent" ]] || exit 1
+[[ "$(optimize_outcome_count applied)" == "1" ]] || exit 1
+EOF
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "notification refresh never falls back to name killing after launchd refusal" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+resolve_notification_center_db() { printf '%s\n' "$HOME/nc.db"; }
+opt_existing_file_size_kb_strict() { echo 60000; }
+sqlite3() { :; }
+trace="$HOME/notification-refused.trace"
+run_with_timeout() { printf '%s\n' "$*" >> "$trace"; return 3; }
+killall() { echo "UNSAFE_NAME_KILL" >> "$trace"; }
+execute_optimization notification_cleanup
+[[ "$(cat "$trace")" == "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC /bin/launchctl kill SIGTERM gui/$UID/com.apple.notificationcenterui.agent" ]] || exit 1
+# SQL succeeded: a missing/not-running service does not undo database maintenance.
+[[ "$(optimize_outcome_count applied)" == "1" ]] || exit 1
+EOF
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "notification cleanup dry run never refreshes the service" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_DRY_RUN=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+resolve_notification_center_db() { printf '%s\n' "$HOME/nc.db"; }
+opt_existing_file_size_kb_strict() { echo 60000; }
+trace="$HOME/notification-dry.trace"
+sqlite3() { echo SQL >> "$trace"; }
+run_with_timeout() { echo LAUNCHCTL >> "$trace"; }
+killall() { echo KILL >> "$trace"; }
+execute_optimization notification_cleanup
+[[ ! -e "$trace" ]] || exit 1
+EOF
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
 @test "opt_coreduet_cleanup reports healthy when db is small" {
 	local tmp_dir
 	tmp_dir=$(mktemp -d)

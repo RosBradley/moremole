@@ -312,3 +312,42 @@ func TestCollectNetworkDefaultTunnel(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectNetworkKeepsIdleDefaultInterface(t *testing.T) {
+	original := ioCountersFunc
+	t.Cleanup(func() { ioCountersFunc = original })
+	const mb = 1024 * 1024
+	// Kernel order on Apple silicon: Thunderbolt ports come before Wi-Fi en0.
+	names := []string{"en4", "en5", "en6", "en1", "en0"}
+	counters := make([]gopsutilnet.IOCountersStat, len(names))
+	for i, name := range names {
+		counters[i] = gopsutilnet.IOCountersStat{Name: name, BytesRecv: 100 * mb, BytesSent: 100 * mb}
+	}
+	ioCountersFunc = func(bool) ([]gopsutilnet.IOCountersStat, error) {
+		return append([]gopsutilnet.IOCountersStat(nil), counters...), nil
+	}
+	now := time.Now()
+	c := &Collector{prevNet: make(map[string]gopsutilnet.IOCountersStat), defaultNetInterface: "en0", cachedNetIPs: map[string]string{}, lastNetIPAt: now}
+	c.primeNetworkCounters(now)
+	names3 := func(got []NetworkStatus) string {
+		var out []string
+		for _, n := range got {
+			out = append(out, n.Name)
+		}
+		return strings.Join(out, ",")
+	}
+
+	// Every interface idle: tie order is unspecified, but the routed one stays.
+	now = now.Add(time.Second)
+	if got := c.collectNetwork(now); len(got) != 3 || !strings.Contains(","+names3(got)+",", ",en0,") {
+		t.Fatalf("idle routed interface dropped: %s", names3(got))
+	}
+	// Three busier interfaces keep their order; the routed one still shows.
+	for i := range 3 {
+		counters[i].BytesRecv += uint64(3-i) * mb
+	}
+	now = now.Add(time.Second)
+	if got := names3(c.collectNetwork(now)); got != "en4,en5,en0" {
+		t.Fatalf("busy interfaces pushed out the routed one: %s", got)
+	}
+}

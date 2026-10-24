@@ -483,11 +483,9 @@ Vous préférez un tutoriel vidéo ? Regardez la [présentation de Mole](https:/
 - Si Mole vous rend service, laissez-lui une étoile sur GitHub, [partagez-le sur X](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.) ou proposez une issue / PR
 - J'ai deux chattes, TangYuan et Coke, et si Mole vous simplifie la vie, n'hésitez pas à leur offrir <a href="https://cats.tw93.fun?name=Mole" target="_blank">une boîte de pâtée 🥩</a>
 
-<details>
-<summary>Ceux qui ont déjà régalé les chats 🐱</summary>
-<br/>
-<a href="https://cats.tw93.fun?name=Mole"><img src="https://cdn.jsdelivr.net/gh/tw93/sponsors@main/assets/sponsors.svg" alt="Donateurs de Mole" width="1000" loading="lazy" /></a>
-</details>
+Ceux qui ont déjà régalé les chats 🐱
+
+<a href="https://cats.tw93.fun?name=Mole"><img src="https://raw.githubusercontent.com/tw93/sponsors/main/assets/sponsors.svg" alt="Donateurs de Mole" width="1000" loading="lazy" /></a>
 
 ## Licence
 

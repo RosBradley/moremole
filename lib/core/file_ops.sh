@@ -132,7 +132,29 @@ _mole_normalize_deletion_policy_path() {
     done
 
     local trimmed="${path%/}"
-    [[ -n "$trimmed" ]] && printf '%s\n' "$trimmed" || printf '%s\n' "$path"
+    [[ -n "$trimmed" ]] && path="$trimmed"
+    _mole_data_volume_policy_path "$path"
+}
+
+# The Data volume is mounted at /System/Volumes/Data, which the deny list would
+# reject as part of /System. A top-level entry the root reaches as the same
+# directory, through a firmlink (/Users, /private) or a synthetic.conf link
+# (/src -> System/Volumes/Data/src), is judged by that root path instead:
+# physical resolution turns a purge root under /src into the Data path (#1814).
+# Entries the root cannot reach, such as the Spotlight store or the volume's
+# own System tree, keep the literal path and stay critical.
+_mole_data_volume_policy_path() {
+    local path="$1"
+    local data_root="/System/Volumes/Data"
+    if [[ "$path" == "$data_root"/?* ]]; then
+        local root_path="${path#"$data_root"}"
+        local top="${root_path#/}"
+        top="/${top%%/*}"
+        if [[ -d "$top" && "$top" -ef "$data_root$top" ]]; then
+            path="$root_path"
+        fi
+    fi
+    printf '%s\n' "$path"
 }
 
 # PerfPowerServices keeps one live SQLite database per telemetry store, named
@@ -3094,7 +3116,8 @@ _mole_move_path_to_user_trash() {
             sudo -n /bin/rm -rf "$stage_dir" 2> /dev/null || true # SAFE: exact empty root-owned stage created for this item above
             return "$stage_guard_rc"
         fi
-        sudo -n /bin/mv "$path" "$stage_path" 2> /dev/null || stage_move_rc=$?
+        run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
+            sudo -n /bin/mv "$path" "$stage_path" 2> /dev/null || stage_move_rc=$?
         if [[ $stage_move_rc -ne 0 ]]; then
             if mole_rc_timeout_or_signal "$stage_move_rc"; then
                 if [[ -e "$stage_path" || -L "$stage_path" ]]; then
@@ -3115,13 +3138,16 @@ _mole_move_path_to_user_trash() {
         # ownership changes, preserve on any later failure rather than
         # reintroducing user-owned content into the privileged source path.
         local handoff_rc=0
-        sudo -n /bin/chmod 700 "$stage_dir" 2> /dev/null || handoff_rc=$?
+        run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
+            sudo -n /bin/chmod 700 "$stage_dir" 2> /dev/null || handoff_rc=$?
         if [[ $handoff_rc -eq 0 ]]; then
-            sudo -n /usr/sbin/chown -Rhx "$owner_uid:$owner_gid" \
+            run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
+                sudo -n /usr/sbin/chown -Rhx "$owner_uid:$owner_gid" \
                 "$stage_path" 2> /dev/null || handoff_rc=$?
         fi
         if [[ $handoff_rc -eq 0 ]]; then
-            sudo -n /usr/sbin/chown "$owner_uid:$owner_gid" \
+            run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
+                sudo -n /usr/sbin/chown "$owner_uid:$owner_gid" \
                 "$stage_dir" 2> /dev/null || handoff_rc=$?
         fi
         if [[ $handoff_rc -ne 0 ]]; then
@@ -3135,9 +3161,11 @@ _mole_move_path_to_user_trash() {
         fi
 
         if [[ ${EUID:-0} -eq 0 ]]; then
-            move_output=$(sudo -n -u "#$owner_uid" /bin/mv -n "$stage_path" "$dest" 2>&1) || move_rc=$?
+            move_output=$(run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
+                sudo -n -u "#$owner_uid" /bin/mv -n "$stage_path" "$dest" 2>&1) || move_rc=$?
         else
-            move_output=$(/bin/mv -n "$stage_path" "$dest" 2>&1) || move_rc=$?
+            move_output=$(run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
+                /bin/mv -n "$stage_path" "$dest" 2>&1) || move_rc=$?
         fi
 
         if [[ $move_rc -ne 0 || -e "$stage_path" || -L "$stage_path" ]]; then
@@ -3166,7 +3194,10 @@ _mole_move_path_to_user_trash() {
         _mole_owned_path_still_valid "$path" \
             "$expected_file_sha256" "$expected_absent_path" \
             "$expected_parent" "$expected_parent_id" "$expected_target_id" || return $?
-        move_output=$(mv -n "$path" "$dest" 2>&1) || move_rc=$?
+        # Bound the actual move, not a replacement batch wrapper: local data
+        # and cross-volume copies can both stall after their safety probes.
+        move_output=$(run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
+            mv -n "$path" "$dest" 2>&1) || move_rc=$?
     fi
     if [[ $move_rc -ne 0 ]]; then
         mole_rc_timeout_or_signal "$move_rc" && return "$move_rc"

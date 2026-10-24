@@ -107,16 +107,30 @@ run_selector() {
     [[ "$applied" != *"Q Cancel"* ]] || return 1
 }
 
-@test "uninstall footer keeps name order and search discoverable on narrow terminals" {
-    for COLUMNS in 40 60 80 120; do
+@test "uninstall footer prioritizes core actions before optional hints" {
+    for COLUMNS in 40 54 60 80 120; do
         export COLUMNS
         : > "$KEY_STATE"
         run_selector CHAR:s QUIT
         run cat "$MENU_OUTPUT"
         [[ "$output" == *"Space Select"* ]] || return 1
-        [[ "$output" == *"S Name"* ]] || return 1
-        [[ "$output" == *"O A-Z"* ]] || return 1
-        [[ "$output" == *"/ Search"* ]] || return 1
+        [[ "$output" == *"Enter Save"* ]] || return 1
+        [[ "$output" == *"Q Cancel"* ]] || return 1
+        if ((COLUMNS >= 47)); then
+            [[ "$output" == *"/ Search"* ]] || return 1
+        else
+            [[ "$output" != *"/ Search"* ]] || return 1
+        fi
+        if ((COLUMNS >= 56)); then
+            [[ "$output" == *"S Name"* ]] || return 1
+        else
+            [[ "$output" != *"S Name"* ]] || return 1
+        fi
+        if ((COLUMNS >= 80)); then
+            [[ "$output" == *"O A-Z"* ]] || return 1
+        else
+            [[ "$output" != *"O A-Z"* ]] || return 1
+        fi
     done
 }
 

@@ -8,27 +8,33 @@ sections into path rules.
 
 A file is a candidate when it is more than 20% larger than the size recorded after its last compression
 in `docs/weekly-audit.md` (record the size the same day you compress). Reporting a size is not enough:
-a file reported in two runs without a Phase 4 item stayed as it was. Compression is a Phase 4 item like any other: it needs the maintainer's approval of the batch.
+a file reported in two runs without a Phase 4 item stayed as it was. Growth is a
+review trigger, not proof of redundancy or permission to remove constraints.
+Compression follows the authorization for the current batch; do not ask again
+when it is already included.
 
 ## Contract
 
 The header of `AGENTS.md` is the contract: keep each rule's invariant, scope and why, plus failure
 mechanism, measured numbers, counterexamples, locked test names, rejected alternatives, maintainer
 decisions with their dates and every failure-recovery step. Remove narration, timelines and repeated
-receipts. Per-case detail (one app, one tool, one incident) may move to the matching `.claude/references`
+receipts. Per-case detail (one app, one tool, one incident) may move to the matching `.claude/skills/bugs/references/`
 file with a one-line pointer; moving is not deleting. Never delete a rule because a personal global file
 says the same: the repo's guides are the complete contract. Keep `paths:` frontmatter byte-identical.
 
 ## Steps
 
-1. Save each original to the scratchpad with `git show HEAD:<path>` and record `wc -w` / `wc -c`.
+1. Save the actual working file bytes to an isolated scratch directory and record
+   `wc -w` / `wc -c`, HEAD and worktree status. A `git show HEAD:<path>` snapshot
+   omits uncommitted changes and cannot serve as the original when WIP exists.
 2. One agent per file, each told to touch only its file and the reference file it moves detail to, and to
-   stop if `git diff --stat -- <file>` is not empty before its final write (other sessions share the tree).
+   compare the current file with its saved snapshot before writing. If it changed,
+   reconcile those edits without overwriting them (other sessions share the tree).
 3. Mechanical gates, all from the agents and rerun by the main session:
    no lock checker exists here: grep every test name the original names after "Locked by" in `tests/` and `cmd/`;
    every backticked token of the original still appears in the file or its reference destination; no
    U+2014; the size before and after.
-4. Independent meaning review, mandatory: a different agent diffs `git show <commit>^:<path>` against the
+4. Independent meaning review, mandatory: a different agent diffs the saved working-file snapshot against the
    new file and reports dropped or changed constraints, each refuted once by searching the file, its
    references, `AGENTS.md` and sibling rules. On 2026-10-17 every mechanical gate passed and this review
    still found 73 real losses across the four rule sets compressed that day, none dangerous, many medium. The recurring
@@ -41,10 +47,11 @@ says the same: the repo's guides are the complete contract. Keep `paths:` frontm
      narrowing the code does not make (the split here wrote that the installer pins `SCRIPT_DIR=`, which
      it rewrites).
 5. Restore each surviving loss by putting the original wording back, then rerun the gates.
-6. Before syncing a shared checkout, compare the originals with `origin/main`: a session that edited the same
-   rule while you compressed it leaves a sync conflict. Take its added words with
-   `git diff --word-diff=plain HEAD origin/main -- <file>`, apply them to the compressed text, restore the file
-   to HEAD, sync, then write the merged text back.
+6. Recheck HEAD, remote head and working files before integration. Reconcile
+   concurrent changes against the saved snapshot under the repository sync
+   workflow; never restore the working file to HEAD to make synchronization easy.
+   Report merged rules, removed rules and why each removal no longer changes
+   behavior; preserve every remaining constraint and its reference destination.
 
 ## Splitting a guide into path rules
 

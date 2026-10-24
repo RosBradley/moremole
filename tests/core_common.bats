@@ -252,7 +252,7 @@ EOF
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 pgrep() {
-    [[ "$1" == "-x" && "$2" == "xcodebuild" ]]
+    [[ "$1" == -*x && "|$2|" == *"|xcodebuild|"* ]]
 }
 xcode_build_tooling_process_state
 EOF
@@ -273,6 +273,26 @@ PATH=/nonexistent
 process_state=0
 xcode_build_tooling_process_state || process_state=$?
 [[ "$process_state" -eq 2 ]] || exit 3
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "Xcode and CoreSimulator process probes each run one pgrep" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+rm -f "$HOME/pgrep-calls"
+pgrep() { printf x >> "$HOME/pgrep-calls"; return 1; }
+calls() { wc -c < "$HOME/pgrep-calls" | tr -d ' '; }
+debug_log() { :; }
+process_state=0
+xcode_build_tooling_process_state || process_state=$?
+[[ "$process_state" -eq 1 && "$(calls)" -eq 1 ]] || { echo "xcode calls=$(calls) state=$process_state"; exit 1; }
+rm -f "$HOME/pgrep-calls"; process_state=0
+_coresimulator_cache_process_running || process_state=$?
+[[ "$process_state" -eq 1 && "$(calls)" -eq 1 ]] || { echo "simulator calls=$(calls) state=$process_state"; exit 1; }
 EOF
 
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
@@ -1353,6 +1373,64 @@ assert b'\r\x1b[2KError:' in raw, raw
 assert b'AFTER:14:\n' in raw, raw
 assert b'Cleaning fixture...' not in raw.split(b'Error:', 1)[1], raw
 PY
+}
+
+@test "loading Mole appends /usr/sbin and /sbin to a PATH without them" {
+    run env -i HOME="$HOME" PATH="/usr/bin:/bin" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/base.sh"
+echo "PATH=$PATH"
+command -v diskutil
+bash -c 'command -v lsof'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"PATH=/usr/bin:/bin:/usr/sbin:/sbin"* ]] || return 1
+    [[ "$output" == *"/usr/sbin/diskutil"* ]] || return 1
+    [[ "$output" == *"/usr/sbin/lsof"* ]] || return 1
+
+    run env -i HOME="$HOME" PATH="/sbin:/usr/bin:/usr/sbin:/bin" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/base.sh"
+echo "PATH=$PATH"
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == "PATH=/sbin:/usr/bin:/usr/sbin:/bin" ]]
+}
+
+@test "sysctl never resolves through PATH (#1804)" {
+    # sysctl lives in /usr/sbin, which a shell PATH may leave out; the lookup
+    # then fails and every caller falls back silently. Shell calls go through
+    # $SYSCTL_CMD (or the literal /usr/sbin/sysctl), Go through the absolute path.
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+start='(^|[[:space:];(|&`"'"'"']|[$][(])'
+pattern="${start}sysctl[[:space:]]"
+for probe in '    n=$(sysctl -n hw.ncpu 2> /dev/null || echo 4)' '    sysctl -n vm.swapusage 2> /dev/null || true'; do
+    printf '%s\n' "$probe" | grep -qE "$pattern" || { echo "matcher missed: $probe"; exit 1; }
+done
+for allowed in '    n=$("$SYSCTL_CMD" -n hw.ncpu)' '    [[ "$(/usr/sbin/sysctl -n hw.optional.arm64)" == "1" ]]'; do
+    if printf '%s\n' "$allowed" | grep -qE "$pattern"; then
+        echo "matcher flagged: $allowed"
+        exit 1
+    fi
+done
+matched=$(find "$PROJECT_ROOT/lib" "$PROJECT_ROOT/bin" -name '*.sh' -print0 |
+    xargs -0 grep -nE "$pattern" "$PROJECT_ROOT/mole" "$PROJECT_ROOT/install.sh" |
+    grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' || true)
+if [[ -n "$matched" ]]; then
+    echo "sysctl resolved through PATH: $matched"
+    exit 1
+fi
+go_matched=$(find "$PROJECT_ROOT/cmd" -name '*.go' ! -name '*_test.go' -print0 | xargs -0 grep -n '"sysctl"' || true)
+if [[ -n "$go_matched" ]]; then
+    echo "Go sysctl resolved through PATH: $go_matched"
+    exit 1
+fi
+echo "clean"
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == "clean" ]]
 }
 
 @test "BSD-only stat, date, find and tr forms never resolve through PATH (#1196, #1752)" {

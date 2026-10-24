@@ -69,24 +69,31 @@ unset mole_color
 #   mole_pgrep_any -x Xcode -f com.apple.dt.XCTest
 # Returns 0 when any pattern matches, 1 only when every probe reports no match,
 # and 2 when no pattern matches but at least one probe could not be completed.
+# pgrep reads each pattern as an extended regex, so the patterns of one
+# selector join with | into a single probe; -x still anchors the whole name.
+# A pgrep per pattern cost about 16ms each in per-item delete guards.
 mole_pgrep_any() {
     if [[ $# -eq 0 || $(($# % 2)) -ne 0 ]] || ! command -v pgrep > /dev/null 2>&1; then
         return 2
     fi
 
-    local aggregate_rc=1
-    local selector pattern probe_rc
+    local exact="" full="" selector pattern probe_rc aggregate_rc=1
     while [[ $# -gt 0 ]]; do
-        selector="$1"
-        pattern="$2"
+        case "$1" in
+            -x) exact="${exact:+$exact|}$2" ;;
+            -f) full="${full:+$full|}$2" ;;
+            *) return 2 ;;
+        esac
         shift 2
+    done
 
+    for selector in -x -f; do
+        pattern="$exact"
+        [[ "$selector" == "-x" ]] || pattern="$full"
+        [[ -n "$pattern" ]] || continue
         probe_rc=0
-        if pgrep "$selector" "$pattern" > /dev/null 2>&1; then
-            return 0
-        else
-            probe_rc=$?
-        fi
+        pgrep "$selector" "$pattern" > /dev/null 2>&1 || probe_rc=$?
+        [[ $probe_rc -ne 0 ]] || return 0
         [[ $probe_rc -eq 1 ]] || aggregate_rc=2
     done
 
@@ -147,7 +154,6 @@ get_lsregister_path() {
 # ============================================================================
 readonly MOLE_TEMP_FILE_AGE_DAYS=7       # Temp file retention (days)
 readonly MOLE_ORPHAN_AGE_DAYS=30         # Orphaned data retention (days)
-readonly MOLE_DOTDIR_ORPHAN_AGE_DAYS=60  # Orphan dotfile hint threshold (days)
 readonly MOLE_MAX_PARALLEL_JOBS=15       # Parallel job limit
 readonly MOLE_MAIL_DOWNLOADS_MIN_KB=5120 # Mail attachment size threshold
 readonly MOLE_MAIL_AGE_DAYS=30           # Mail attachment retention (days)
@@ -158,7 +164,6 @@ readonly MOLE_GPU_CACHE_AGE_DAYS=1       # Rebuildable GPU cache retention (days
 readonly MOLE_TM_BACKUP_SAFE_HOURS=48    # TM backup safety window (hours)
 readonly MOLE_MAX_DS_STORE_FILES=500     # Max .DS_Store files to clean per scan
 readonly MOLE_MAX_ORPHAN_ITERATIONS=100  # Max iterations for orphaned app data scan
-readonly MOLE_ONE_GIB_KB=$((1024 * 1024))
 readonly MOLE_ONE_GB_BYTES=1000000000
 
 # ============================================================================
@@ -549,6 +554,16 @@ STAT_BSD="/usr/bin/stat"
 # File Provider mounts use this path too; GNU findutils earlier in PATH quotes
 # paths in its errors and fails on mounts BSD find walks past.
 FIND_BSD="/usr/bin/find"
+# sysctl lives in /usr/sbin, which a shell PATH may leave out; the PATH lookup
+# then fails and callers silently use their fallback values (#1804).
+SYSCTL_CMD="/usr/sbin/sysctl"
+# diskutil, lsof, pkgutil, ioreg and the other system tools Mole runs by name
+# live there too. Without them a probe reads as "nothing found": diskutil's
+# empty answer skipped the internal-volume refusal of --external. Appending
+# keeps the user's own order ahead of them.
+case ":${PATH:-}:" in *:/usr/sbin:*) ;; *) PATH="${PATH:+$PATH:}/usr/sbin" ;; esac
+case ":$PATH:" in *:/sbin:*) ;; *) PATH="$PATH:/sbin" ;; esac
+export PATH
 
 # Only complete generated completion lines are owned by Mole. A quoted mention
 # or a mixed command may carry unrelated user settings and must remain intact.
@@ -828,7 +843,7 @@ mole_wait_for_any_worker() {
 get_optimal_parallel_jobs() {
     local operation_type="${1:-default}"
     if [[ -z "${MOLE_CPU_CORES_CACHE:-}" ]]; then
-        export MOLE_CPU_CORES_CACHE=$(sysctl -n hw.ncpu 2> /dev/null || echo 4)
+        export MOLE_CPU_CORES_CACHE=$("$SYSCTL_CMD" -n hw.ncpu 2> /dev/null || echo 4)
     fi
     local cpu_cores="$MOLE_CPU_CORES_CACHE"
     case "$operation_type" in

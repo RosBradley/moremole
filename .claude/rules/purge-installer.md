@@ -34,3 +34,5 @@ paths:
 ## Installer (`bin/installer.sh`)
 
 - `bin/installer.sh` owns installer discovery, immutable delete-plan validation, the paginated selection flow, and incomplete-cleanup exit semantics. Run `MOLE_TEST_NO_AUTH=1 bats tests/installer.bats tests/installer_fd.bats tests/installer_zip.bats`.
+
+- Installer menu selection and final deletion confirmation require a successful read. EOF cancels at either boundary, never acts as Enter, even after a selection exists. Locked by `installer selection EOF never confirms the menu or deletion` and `installer final confirmation refuses EOF after a valid selection` in `tests/installer.bats`.

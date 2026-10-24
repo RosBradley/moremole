@@ -483,11 +483,9 @@ PAPAYA 電腦教室 による [Moleチュートリアル動画](https://www.yout
 - Moleが役に立った場合は、GitHubのStarや [Xでのシェア](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.)、Issue・PRでのフィードバックをお願いします
 - 我が家には「湯圓（タンユエン）」と「コーラ」という2匹の猫がいて、Moleが役に立ったら彼女たちに <a href="https://cats.tw93.fun?name=Mole" target="_blank">缶詰 🥩</a> をごちそうしてもらえるとうれしいです
 
-<details>
-<summary>支援してくださった方々 🐱</summary>
-<br/>
-<a href="https://cats.tw93.fun?name=Mole"><img src="https://cdn.jsdelivr.net/gh/tw93/sponsors@main/assets/sponsors.svg" alt="スポンサー" width="1000" loading="lazy" /></a>
-</details>
+支援してくださった方々 🐱
+
+<a href="https://cats.tw93.fun?name=Mole"><img src="https://raw.githubusercontent.com/tw93/sponsors/main/assets/sponsors.svg" alt="スポンサー" width="1000" loading="lazy" /></a>
 
 ## ライセンス
 

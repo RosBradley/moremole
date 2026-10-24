@@ -178,6 +178,7 @@ source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/optimize/tasks.sh"
 unset MOLE_TEST_NO_AUTH MOLE_TEST_MODE
 sudo() { echo "SUDO:$*"; return 0; }
+function /usr/bin/plutil { echo com.apple.mDNSResponder.reloaded; }
 
 execute_optimization network_optimization
 [[ "$(optimize_outcome_count applied)" == "1" ]] || exit 1
@@ -185,9 +186,76 @@ EOF
 
 	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
 	[[ "$(grep -c 'SUDO:dscacheutil -flushcache' <<< "$output")" == "1" ]] || return 1
-	[[ "$output" == *"SUDO:killall -HUP mDNSResponder"* ]] || return 1
+	[[ "$output" == *"SUDO:/bin/launchctl kill SIGHUP system/com.apple.mDNSResponder.reloaded"* ]] || return 1
 	[[ "$output" == *"DNS cache refreshed"* ]] || return 1
 	[[ "$output" != *"Failed to refresh DNS cache"* ]]
+}
+
+@test "DNS refresh signals only the allowlisted system plist service" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_ASSUME_VPN_ACTIVE=0 MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+optimize_sudo_available() { return 0; }
+function /usr/bin/plutil {
+    [[ "$*" == "-extract Label raw -o - /System/Library/LaunchDaemons/com.apple.mDNSResponder.plist" ]] || return 99
+    echo "$label"
+}
+trace="$HOME/dns-service.trace"
+sudo() { printf '%s\n' "$*" >> "$trace"; }
+for label in com.apple.mDNSResponder com.apple.mDNSResponder.reloaded; do
+    : > "$trace"
+    flush_dns_cache || exit 1
+    expected=$(printf 'dscacheutil -flushcache\n/bin/launchctl kill SIGHUP system/%s' "$label")
+    [[ "$(cat "$trace")" == "$expected" ]] || exit 1
+done
+EOF
+	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+}
+
+@test "DNS refresh refuses an unknown or unreadable service before any sudo action" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_ASSUME_VPN_ACTIVE=0 MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+optimize_sudo_available() { return 0; }
+function /usr/bin/plutil { printf '%s\n' "$label"; return "$read_status"; }
+trace="$HOME/dns-refused.trace"
+sudo() { printf '%s\n' "$*" >> "$trace"; }
+read_status=0
+for label in com.apple.mDNSResponder.neighbor '' $'com.apple.mDNSResponder\nextra'; do
+    result=0
+    flush_dns_cache || result=$?
+    [[ "$result" == 1 && ! -e "$trace" ]] || exit 1
+done
+label=com.apple.mDNSResponder
+read_status=1
+result=0
+flush_dns_cache || result=$?
+[[ "$result" == 1 && ! -e "$trace" ]] || exit 1
+EOF
+	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+}
+
+@test "DNS refresh never retries a refused service signal by process name" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_ASSUME_VPN_ACTIVE=0 MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+optimize_sudo_available() { return 0; }
+function /usr/bin/plutil { echo com.apple.mDNSResponder; }
+trace="$HOME/dns-signal-refused.trace"
+sudo() {
+    printf '%s\n' "$*" >> "$trace"
+    [[ "$1" == dscacheutil ]]
+}
+result=0
+flush_dns_cache || result=$?
+[[ "$result" == 1 ]] || exit 1
+expected=$(printf 'dscacheutil -flushcache\n/bin/launchctl kill SIGHUP system/com.apple.mDNSResponder')
+[[ "$(cat "$trace")" == "$expected" ]] || exit 1
+EOF
+	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
 }
 
 @test "DNS flush fails closed when the VPN state cannot be determined" {

@@ -14,8 +14,6 @@ source "$_MOLE_OPTIMIZE_TASKS_DIR/catalog.sh"
 source "$_MOLE_OPTIMIZE_TASKS_DIR/outcomes.sh"
 
 # Config constants (override via env).
-readonly MOLE_TM_THIN_TIMEOUT=180
-readonly MOLE_TM_THIN_VALUE=9999999999
 readonly MOLE_SQLITE_MAX_SIZE=104857600 # 100MB
 
 # Dry-run aware output.
@@ -179,7 +177,18 @@ flush_dns_cache() {
         return 1
     fi
 
-    if sudo dscacheutil -flushcache 2> /dev/null && sudo killall -HUP mDNSResponder 2> /dev/null; then
+    # Newer macOS keeps the same system plist but names the service .reloaded.
+    # Read only that SIP-protected plist; never discover a target by process name or PID.
+    local service_label=""
+    service_label=$(/usr/bin/plutil -extract Label raw -o - \
+        /System/Library/LaunchDaemons/com.apple.mDNSResponder.plist 2> /dev/null) || return 1
+    case "$service_label" in
+        com.apple.mDNSResponder | com.apple.mDNSResponder.reloaded) ;;
+        *) return 1 ;;
+    esac
+
+    if sudo dscacheutil -flushcache 2> /dev/null &&
+        sudo /bin/launchctl kill SIGHUP "system/$service_label" 2> /dev/null; then
         return 0
     fi
     return 1
@@ -1446,7 +1455,9 @@ opt_notification_cleanup() {
                 "DELETE FROM record WHERE delivered_date < strftime('%s','now','-30 days'); VACUUM;" \
                 2> /dev/null || sql_ok=$?
             if [[ $sql_ok -eq 0 ]]; then
-                killall NotificationCenter 2> /dev/null || true
+                # Let launchd signal its own service instance, never every process with this name.
+                run_with_timeout "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" /bin/launchctl kill SIGTERM \
+                    "gui/$UID/com.apple.notificationcenterui.agent" > /dev/null 2>&1 || true
                 opt_msg "Notification Center database cleaned (was $(bytes_to_human $((db_size * 1024))))"
                 optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
             else

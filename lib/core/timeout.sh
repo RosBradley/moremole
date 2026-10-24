@@ -198,15 +198,17 @@ run_with_timeout() {
         if [[ "${MO_DEBUG:-0}" == "1" ]]; then
             echo "[TIMEOUT] Running with ${duration}s timeout: $*" >&2
         fi
-        local timeout_rc=0 timeout_started=$SECONDS
+        local timeout_rc=0 timeout_started=$SECONDS timeout_kill_after=2
+        local timeout_whole_seconds="${duration%.*}"
         # The -k escalation kills gtimeout's own process group, so bash would
         # print "Killed: 9"; the command keeps its stderr on fd 3 while that
         # shell notice goes to /dev/null.
-        { "$timeout_bin" -k 2 "$duration" "$@" 2>&3 3>&-; } 3>&2 2> /dev/null || timeout_rc=$?
-        # The -k escalation exits 137 only after the deadline; report it as the
-        # timeout it is. An earlier SIGKILL (memory pressure, kill -9) is not a
-        # timeout and keeps 137, so callers still cancel instead of moving on.
-        if [[ $timeout_rc -eq 137 && $((SECONDS - timeout_started)) -ge ${duration%.*} ]]; then
+        { "$timeout_bin" -k "$timeout_kill_after" "$duration" "$@" 2>&3 3>&-; } 3>&2 2> /dev/null || timeout_rc=$?
+        # Escalation cannot exit 137 before the deadline plus its kill grace.
+        # SECONDS rounds to whole seconds: including the grace keeps an early
+        # SIGKILL distinct even for fractional budgets, without another clock
+        # subprocess on every probe. Normalize leading zeroes as decimal.
+        if [[ $timeout_rc -eq 137 && $((SECONDS - timeout_started)) -ge $((10#$timeout_whole_seconds + timeout_kill_after)) ]]; then
             return 124
         fi
         return "$timeout_rc"

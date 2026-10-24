@@ -15,11 +15,16 @@ worktrees from every grep. Scope: <SCOPE>. Read AGENTS.md on both branches first
 candidate, grep AGENTS.md, .claude/rules/, SYNC.md and docs/ on both branches for its symbol, since the decision may be
 recorded on the other branch. Read docs/weekly-audit.md: never report an item under "Decided, do not
 re-report". For EACH candidate, try to refute it once (the guard that already blocks it, the test that
-locks it, or the line recording the decision) and report only survivors. Mark every number as measured
-(say where) or reasoned (say from what).
+locks it, or the line recording the decision) and report only survivors. Check correctness across
+TUI/JSON, live/completed/cached results, selection identity, empty/partial results, encoding, exit
+status and cancellation. Route applicable cross-CLI fixes through the existing SYNC.md owner row.
+Use raw output for complete counts; recheck frozen heads and flag concurrent changes. Discover
+available native test hosts before assuming Windows execution is unavailable. Mark every number
+as measured (say where) or reasoned (say from what).
 Output (<= 800 words): ranked findings with branch:file:line, severity, concrete failure scenario, why
-existing guards miss it, smallest fix, and whether it needs the maintainer; then a short "checked and
-fine" list.
+existing guards miss it, smallest fix, and any remaining product decision; then a short "checked and
+fine" list. Distinguish reproduced, statically confirmed and unresolved claims, and name untested
+modules, host/shell/source SHA and runtime boundaries. Helper evidence is not full-entrypoint evidence.
 ```
 
 ## 1. Unsafe
@@ -51,7 +56,8 @@ routine skips or a fixed zero. Never propose removing an existing flag.
 
 ```
 First, the "latest stable" and "not released" lines in SYNC.md and AGENTS.md on both branches against
-gh release list. Then every test named as a lock exists (grep -rn '@test "<name>"' tests on main,
+gh release list, exact tag ancestry and delivery receipts; source metadata is not proof of package
+contents. Then every test named as a lock exists (grep -rn '@test "<name>"' tests on main,
 It '<name>' in Pester on windows), versions, paths, make targets, commands, comments naming removed
 functions. These files deliberately record removed and rejected things; read the context first.
 Report counts: claims checked / stale / deliberate.
@@ -69,7 +75,8 @@ whether it is already cached, pooled or gated (tests/core_performance.bats).
 ## 5. Not yet codified
 
 ```
-Window: git log <WINDOW>..HEAD on each branch. An area fixed twice, a behavior fix with no test touched,
+Window: git log <WINDOW>..<MAIN_HEAD|WINDOWS_HEAD> using each frozen audited head,
+not a possibly lagging checkout HEAD. An area fixed twice, a behavior fix with no test touched,
 a lesson living only in memory, an issue reply or one commit message, a rule repeated in several places
 or grown more than 20% past the size recorded after its last compression in docs/weekly-audit.md, and fixes on one branch that SYNC.md should route to the other without a row.
 Say where each lesson should live.
@@ -78,12 +85,14 @@ Say where each lesson should live.
 ## Fix header (Phase 4)
 
 ```
-Implement in Mole CLI, branch <main|windows>. Work in a detached worktree outside /private/tmp:
-  git worktree add --detach <dir>/wt-audit-<n> origin/<branch>
-Commit locally only (lowercase type prefix, subject <= 80, body = why, no Co-authored-by); do not push.
+Implement in the existing Mole CLI <main|windows> checkout after the main session synchronizes it.
+Do not create branches/worktrees, restore files to HEAD, commit or push; the main session integrates
+and commits/pushes the authorized scope under the current Git Safety contract.
 Only touch: <files>. Other agents own: <files>.
-Every behavior fix gets a test that fails on the old code (red-run by restoring the old source in your
-worktree); a Windows test is red-run on CI by the main session. Run ./scripts/check.sh --no-format and
-the named suites with MOLE_TEST_NO_AUTH=1 (macOS), or gofmt -l cmd and GOOS=windows go build ./cmd/...
-(windows). Return: commit hashes, files, test summaries, red-run evidence, every deviation from this
-brief, and anything not done or outside your files.
+Every behavior fix gets a test that fails on the old code, before editing or in an isolated source
+snapshot/overlay outside /private/tmp. Preserve concurrent WIP. Run named fixture suites with
+MOLE_TEST_NO_AUTH=1; the main session runs formatting and whole-tree checks once edits settle.
+Windows native tests use available hosts under both powershell and pwsh; never infer native behavior
+from a macOS cross-build. Return: files, test summaries, red-run evidence, source and host versions,
+every deviation from this brief, and anything not done or outside your files.
+```

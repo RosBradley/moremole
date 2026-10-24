@@ -483,11 +483,9 @@ X (Twitter)에 공유해 주신 사용자들의 생생한 후기:
 - Mole이 마음에 드셨다면 GitHub Star를 눌러주시고, [주변에 공유](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.)해 주시거나 Issue/PR로 함께해 주세요
 - 제게는 '탕위안'과 '콜라'라는 고양이 두 마리가 있는데, Mole이 유용하셨다면 두 아이에게 <a href="https://cats.tw93.fun?name=Mole" target="_blank">맛있는 캔 🥩</a> 하나 선물해 주세요
 
-<details>
-<summary>이미 고양이들에게 간식을 선물해 주신 분들 🐱</summary>
-<br/>
-<a href="https://cats.tw93.fun?name=Mole"><img src="https://cdn.jsdelivr.net/gh/tw93/sponsors@main/assets/sponsors.svg" alt="Mole 후원자" width="1000" loading="lazy" /></a>
-</details>
+이미 고양이들에게 간식을 선물해 주신 분들 🐱
+
+<a href="https://cats.tw93.fun?name=Mole"><img src="https://raw.githubusercontent.com/tw93/sponsors/main/assets/sponsors.svg" alt="Mole 후원자" width="1000" loading="lazy" /></a>
 
 ## 라이선스
 

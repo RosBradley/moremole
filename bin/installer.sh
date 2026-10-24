@@ -574,7 +574,10 @@ select_installers() {
     while true; do
         draw_menu
 
-        IFS= read -r -s -n1 key || key=""
+        if ! IFS= read -r -s -n1 key; then
+            restore_terminal
+            return 1
+        fi
         case "$key" in
             $'\x1b')
                 IFS= read -r -s -n1 -t 1 key2 || key2=""
@@ -839,7 +842,10 @@ delete_selected_installers() {
     echo ""
     echo -ne "${PURPLE}${ICON_ARROW}${NC} Delete ${#INSTALLER_DELETE_PATHS[@]} installers, ${confirm_human}  ${GREEN}Enter${NC} confirm, ${GRAY}ESC${NC} cancel: "
 
-    IFS= read -r -s -n1 confirm || confirm=""
+    if ! IFS= read -r -s -n1 confirm; then
+        printf '\n'
+        return 1
+    fi
     case "$confirm" in
         $'\e' | q | Q)
             return 1

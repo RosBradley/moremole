@@ -2,6 +2,54 @@
 
 One entry per run of `.claude/skills/weekly-audit`, newest first, covering Mole CLI (macOS) on `main` and Mole CLI (Windows) on `windows`. The next run reads the newest entry for its commit window (`Next window from`), for the items it must not report again (`Decided, do not re-report`), and rechecks `Open` first. Facts here are a run record; lasting invariants live in `AGENTS.md` on each branch.
 
+## 2026-10-23 Safety and performance follow-up
+
+- Next window from: main `44386098`, windows `923e1b2a`, unchanged from the last complete dual CLI review below.
+
+The two same-shape Optimize signal sites now address launchd services instead of process names. NotificationCenter uses the current GUI domain; DNS reads the fixed system plist and permits only the original or `.reloaded` label. Existing SQL, VPN, dry-run and privilege behavior remains. Two NotificationCenter regressions and three DNS regressions failed against the old implementations, the four Optimize suites passed all 141 tests, and the full check and test workflows exited 0. No live system-service signal was sent. Source is ready for delivery; no version or release changed. The app-owned record carries the cross-product comparison, without copying private source here.
+
+The subsequent review of main `fb920811` and windows `e5257672` found three remaining items. Seven direct/staging Trash commands now use the existing per-command disk deadline, preserving staged data and completed-path accounting on timeout; all eight real-helper timeout regressions failed before the fix and passed after it. PR #1830 was repaired on its existing branch in `24f9a326`, preserving the contributor's commit: an execution-trace contract replaces text matching, and the complete 16-test performance suite passes, including harmful and harmless syntax fixtures. That PR remains unmerged. The newest entry now explicitly inherits the last complete review's next-window baseline above. The Windows recycle implementation uses a separate COM boundary, so this shell fix does not establish a Windows recycle deadline. Real authorization, cross-volume movement, reporter resolution and release delivery remain unverified.
+
+The Trash follow-up passed `check.sh --format`, `check.sh --no-format` and the complete `TERM=xterm-256color MOLE_TEST_NO_AUTH=1 ./scripts/test.sh`, which exited 0 and reported `All tests passed!`. Six legacy mover mocks were converted from shell functions to executable fixtures so the external timeout backend still exercises their intended failures. The first full run exposed the last of these in the uninstall access-denial test; that case and the complete rerun passed after its fixture update.
+
+## 2026-10-23 (whole dual CLI review and skill update)
+
+- Frozen review window: main `8b49a13a..176df15b` (68 commits), windows `9b010223..b3c3a622` (27 commits). Both repair checkouts were fast-forwarded to these reviewed remote heads before editing, with no unrelated worktree changes. The concurrent Windows contributors-only commit `6a7d2c3c` was inspected and retained.
+- Merged PR set since 2026-10-18, rechecked before delivery: 25, with no additions or missing IDs: #1764, #1765, #1766, #1768, #1769, #1772, #1774, #1776, #1784, #1785, #1786, #1790, #1799, #1803, #1806, #1807, #1808, #1809, #1812, #1816, #1817, #1819, #1821, #1822, #1828.
+- Scope: both complete CLI trees, including core safety, cleanup, uninstall, purge/installer, optimize, slim where present, routers, installation/update/removal, Analyze/Status, tests, workflows and guidance. Both desktop apps remain outside this audit.
+- Next window from: main `44386098`, windows `923e1b2a`.
+
+### Approved queue disposition
+
+| Item | Result | Evidence |
+| --- | --- | --- |
+| 1. Installer EOF accepted as Enter | Fixed | `d5a2d34d`; selection and final confirmation now cancel on failed reads, with EOF and explicit Enter regressions in `tests/installer.bats`. |
+| 2. Partial external-volume metadata could authorize cleanup | Fixed | `b81e6e85`; require successful `diskutil info -plist`, a typed false `Internal` and a nonempty local protocol. Failure, timeout, malformed/type-confused and network cases retain the target; signals propagate. Helper and real CLI fixtures pass. |
+| 3. Windows completed Analyze list lost children after row 30 | Fixed | Windows `b5ec4858`; full directly browsable results, cached navigation, selection/viewport and wide row indexes are covered by `directory_browsing_test.go`. Recursive summaries remain bounded and refresh when entered. No Windows disk-cache schema exists to invalidate. |
+| 4. Fractional timeout mapped early SIGKILL to timeout | Fixed | `f7b7afc0`; use the existing native kill grace when interpreting status 137. Both early SIGKILL and actual escalation are covered; all 35 timeout tests pass. |
+| 5. Both Analyze implementations repeatedly searched and sorted full lists | Fixed | Main `44386098`, Windows `b5ec4858`; scan-local path indexes and existing 100 ms display ticks batch sorting/filtering, while totals and completion/cache updates remain immediate. Full Go and Analyze race tests pass on macOS; Windows native results are owned by its development record. |
+| 6. Slim predictable output suffix and closed confirmation input | Fixed defensively | `50cd1135`; exclusively created temporary output cannot reuse a pre-existing suffix symlink, and EOF cancels. The real lipo helper fixture preserves the linked victim. This proves the helper boundary, not a full Developer ID bundle exploit or signed-app acceptance run. |
+| 7. PowerShell 7 WMI compatibility concern | No production change needed on tested hosts | `49e14d08` adds unmocked health queries. The initial native matrix passed that test on PowerShell 5.1 and 7.6.6; its sole failure on each host was the new Go files missing from the install inventory, fixed in `923e1b2a`. The ARM64 VM resolved `Get-WmiObject` through a Windows compatibility proxy, so absence as a native cmdlet alone does not prove a broken query. |
+| 8. Weekly skill and stale synchronization evidence | Updated | Skill 1.3.0 freezes heads/PR sets and whole-tree scope, distinguishes evidence layers, requires correctness/cross-CLI checks, preserves concurrent work and verifies final-head CI. Existing CLI-SYNC-02/04/15 now reflect verified release ancestry and dated delivery receipts; CLI-SYNC-05 owns this Analyze adaptation. |
+
+### Verification and boundaries
+
+The final complete `TERM=xterm-256color MOLE_TEST_NO_AUTH=1 ./scripts/test.sh` exited 0 and reported `All tests passed!`, including Bats, Go, module loading, integration and isolated installation. The first full run exposed one legacy text-format diskutil fixture in `tests/cli.bats`; after updating it to the plist contract, the targeted case and complete rerun passed. `check.sh --format`, `check.sh --no-format`, test ShellCheck, `make build`, both branches' full Go tests, Analyze race tests and the Windows cross-build/vet passed. Regressions were first observed failing against the previous implementations. Windows source `923e1b2a` passed native Check and Validation, including both PowerShell hosts, Go, Build and Security; receipts are in its existing development record. Final branch-head CI is checked separately from these local results.
+
+The 10,000-child in-memory update fixture plus one display tick measured main 649.377 ms before and 0.895 ms after, Windows 328.791 ms before and 0.879 ms after. These are single samples on the same Mac/Go host, excluding filesystem scanning and View rendering, not end-to-end speed claims.
+
+The three changed skill files passed schema validation, independent semantic review, 13 local path checks and command-option checks. No effective safety constraint was deleted or compressed. Existing area rules now lock EOF cancellation, typed completed probes, fractional timeout status, exclusive slim output and batched complete Analyze results.
+
+### Decided, do not re-report
+
+- Preserve the PowerShell implementation on the tested hosts; keep the native unmocked health test so future incompatibility is detected instead of inferred from command deprecation alone.
+- Preserve bounded recursive summaries and existing feature scope. No new public flag, configuration key or dependency was added. Visible changes are cancellation on EOF, refusal of unknown external volumes, complete Windows directory browsing and sorting/filtering on the existing display tick.
+- CLI-SYNC-06 and CLI-SYNC-09 remain their existing product-decision queue, outside this repair batch. Rule-size growth alone does not justify removing effective constraints.
+
+### Open
+
+No remaining confirmed source defect in this eight-item queue. Source and CI do not establish release delivery: no tag, release, package publication, real cleanup, real app uninstall or new physical ThinkPad acceptance was performed. The local VM command channel was intermittent; native matrix results must not be described as physical-device acceptance.
+
 ## 2026-10-18 (dual CLI post-release audit)
 
 - Frozen source: main `3041d86c`, windows `7b2da730`, both clean and matching their remote heads. Release comparison: `V1.61.0` and `V1.36.0-windows`. Both desktop apps were outside this review.

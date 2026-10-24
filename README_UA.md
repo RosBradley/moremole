@@ -483,11 +483,9 @@ Raycast потребує одного ручного налаштування:
 - Якщо Mole вам допоміг, поставте зірку, [розкажіть про нього](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.) або відкрийте issue чи PR
 - У мене двоє котів, TangYuan і Coke; якщо Mole хоч трохи полегшив вам життя, можете пригостити їх <a href="https://cats.tw93.fun?name=Mole" target="_blank">консервами 🥩</a>
 
-<details>
-<summary>Ці чудові люди вже пригостили 🐱</summary>
-<br/>
-<a href="https://cats.tw93.fun?name=Mole"><img src="https://cdn.jsdelivr.net/gh/tw93/sponsors@main/assets/sponsors.svg" alt="Прихильники Mole" width="1000" loading="lazy" /></a>
-</details>
+Ці чудові люди вже пригостили 🐱
+
+<a href="https://cats.tw93.fun?name=Mole"><img src="https://raw.githubusercontent.com/tw93/sponsors/main/assets/sponsors.svg" alt="Прихильники Mole" width="1000" loading="lazy" /></a>
 
 ## Ліцензія
 

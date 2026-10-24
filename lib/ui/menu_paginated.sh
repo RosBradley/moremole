@@ -40,13 +40,8 @@ _pm_get_terminal_height() {
 # Calculate dynamic items per page based on terminal height
 _pm_calculate_items_per_page() {
     local term_height=$(_pm_get_terminal_height)
-    # Header + two blank rows + two control rows + a cursor row, so the final
-    # newline cannot scroll the header away. Narrow controls may wrap again.
-    local reserved=6
-    local term_width="${COLUMNS:-$(tput cols 2> /dev/null || echo 80)}"
-    if [[ "$term_width" =~ ^[0-9]+$ && $term_width -lt 40 ]]; then
-        reserved=7
-    fi
+    # Header, two blank rows and a cursor row, plus the measured controls.
+    local reserved=$((4 + ${1:-2}))
     local available=$((term_height - reserved))
 
     # Ensure minimum and maximum bounds
@@ -304,6 +299,17 @@ paginated_multi_select() {
     hide_cursor
 
     # Helper functions
+    _strip_ansi_len() {
+        local text="$1"
+        local stripped
+        stripped=$(printf "%s" "$text" | LC_ALL=C awk '{gsub(/\033\[[0-9;]*[A-Za-z]/,""); print}' || true)
+        [[ -z "$stripped" ]] && stripped="$text"
+        # These controls use ASCII and single-cell arrows. Count UTF-8
+        # characters even when the caller (including slim) uses LC_ALL=C.
+        local LC_ALL=en_US.UTF-8
+        printf "%d" "${#stripped}"
+    }
+
     # Print footer lines wrapping only at separators
     _print_wrapped_controls() {
         local sep="$1"
@@ -313,14 +319,6 @@ paginated_multi_select() {
         local cols="${COLUMNS:-}"
         [[ -z "$cols" ]] && cols=$(tput cols 2> /dev/null || echo 80)
         [[ "$cols" =~ ^[0-9]+$ ]] || cols=80
-
-        _strip_ansi_len() {
-            local text="$1"
-            local stripped
-            stripped=$(printf "%s" "$text" | LC_ALL=C awk '{gsub(/\033\[[0-9;]*[A-Za-z]/,""); print}' || true)
-            [[ -z "$stripped" ]] && stripped="$text"
-            printf "%d" "${#stripped}"
-        }
 
         local line="" s candidate
         local clear_line=$'\r\033[2K'
@@ -333,7 +331,7 @@ paginated_multi_select() {
             local candidate_len
             candidate_len=$(_strip_ansi_len "$candidate")
             [[ -z "$candidate_len" ]] && candidate_len=0
-            if ((candidate_len > cols)); then
+            if [[ -n "$line" ]] && ((candidate_len > cols)); then
                 printf "%s%s\n" "$clear_line" "$line" >&2
                 line="$s"
             else
@@ -514,7 +512,7 @@ paginated_multi_select() {
             fi
             printf "\r\033[2K${YELLOW}/ Search: %s%s${NC}  ${GRAY}%s${NC}\n" "$query_display" "$marker" "$counts" >&2
         elif [[ -n "${MOLE_READ_KEY_FORCE_CHAR:-}" ]]; then
-            printf "\r\033[2K${YELLOW}/ Search: _ ${NC}${GRAY}(type to search)${NC}\n" >&2
+            printf '%b' "\r\033[2K${YELLOW}/ Search: _ ${NC}${GRAY}(type to search)${NC}\n" >&2
         else
             printf "\r\033[2K${PURPLE_BOLD}%s${NC}  ${GRAY}%d/%d selected${NC}\n" "${title}" "$selected_count" "$total_items" >&2
         fi
@@ -540,52 +538,7 @@ paginated_multi_select() {
         return 0
     }
 
-    # Draw the complete menu
-    draw_menu() {
-        items_per_page=$(_pm_calculate_items_per_page)
-        local clear_line=$'\r\033[2K'
-
-        printf "\033[H" >&2
-
-        draw_header
-
-        # Visible slice
-        local visible_total=${#view_indices[@]}
-        local visible_count=$((visible_total - top_index))
-        [[ $visible_count -gt $items_per_page ]] && visible_count=$items_per_page
-        [[ $visible_count -le 0 ]] && visible_count=1
-        if [[ $cursor_pos -ge $visible_count ]]; then
-            cursor_pos=$((visible_count - 1))
-            [[ $cursor_pos -lt 0 ]] && cursor_pos=0
-        fi
-
-        printf "${clear_line}\n" >&2
-
-        # Items for current window
-        local start_idx=$top_index
-        local end_idx=$((top_index + items_per_page - 1))
-        [[ $end_idx -ge $visible_total ]] && end_idx=$((visible_total - 1))
-
-        for ((i = start_idx; i <= end_idx; i++)); do
-            [[ $i -lt 0 ]] && continue
-            local is_current=false
-            [[ $((i - start_idx)) -eq $cursor_pos ]] && is_current=true
-            render_item $((i - start_idx)) $is_current
-        done
-
-        # Fill empty slots to clear previous content
-        local items_shown=$((end_idx - start_idx + 1))
-        [[ $items_shown -lt 0 ]] && items_shown=0
-        if [[ $visible_total -eq 0 ]]; then
-            printf "${clear_line}No matches\n" >&2
-            items_shown=1
-        fi
-        for ((i = items_shown; i < items_per_page; i++)); do
-            printf "${clear_line}\n" >&2
-        done
-
-        printf "${clear_line}\n" >&2
-
+    render_controls() {
         # Build sort status
         local sort_label=""
         case "$sort_mode" in
@@ -595,7 +548,7 @@ paginated_multi_select() {
         esac
         local sort_status="${sort_label}"
 
-        # Keep search and ordering visible alongside selection controls.
+        # Keep core actions visible; secondary hints yield when space is tight.
         local sep=" ${GRAY}|${NC} "
 
         # Common menu items
@@ -617,36 +570,103 @@ paginated_multi_select() {
         local order_ctrl="${GRAY}O ${reverse_arrow}${NC}"
         local filter_ctrl="${GRAY}/ Search${NC}"
 
+        local term_width="${COLUMNS:-}"
+        [[ -z "$term_width" ]] && term_width=$(tput cols 2> /dev/null || echo 80)
+        [[ "$term_width" =~ ^[0-9]+$ ]] || term_width=80
+        local -a controls=() optional_controls=()
         if [[ -n "${MOLE_READ_KEY_FORCE_CHAR:-}" ]]; then
             local -a _segs_filter=("${GRAY}Enter Apply${NC}" "${GRAY}Backspace${NC}" "${GRAY}Ctrl+U Clear${NC}" "${GRAY}Esc Clear${NC}")
-            _print_wrapped_controls "$sep" "${_segs_filter[@]}"
+            controls=("${_segs_filter[@]}")
+            optional_controls=("${GRAY}Ctrl+U Clear${NC}" "${GRAY}Backspace${NC}")
         else
-            local term_width="${COLUMNS:-}"
-            [[ -z "$term_width" ]] && term_width=$(tput cols 2> /dev/null || echo 80)
-            [[ "$term_width" =~ ^[0-9]+$ ]] || term_width=80
-            local -a _segs=("$space_select")
-            if [[ $term_width -ge 60 ]]; then
-                _segs=("$nav" "$space_select")
-            fi
+            local -a _segs=("$nav" "$space_select")
             [[ "$select_all_enabled" == true ]] && _segs+=("$select_all")
             _segs+=("$enter")
             # Q clears an applied search like Esc, so it only cancels without one.
             [[ -z "$filter_text" ]] && _segs+=("$cancel_label")
-            _print_wrapped_controls "$sep" "${_segs[@]}"
             local -a _segs_browse=("$filter_ctrl")
             if [[ "$has_sort_controls" == true ]]; then
                 _segs_browse=("$sort_ctrl" "$order_ctrl" "$filter_ctrl")
             fi
             [[ -n "$filter_text" ]] && _segs_browse+=("${GRAY}Esc Clear${NC}")
-            [[ $term_width -ge 80 ]] && _segs_browse+=("$page_ctrl")
-            _print_wrapped_controls "$sep" "${_segs_browse[@]}"
+            _segs_browse+=("$page_ctrl")
+            controls=("${_segs[@]}" "${_segs_browse[@]}")
+            optional_controls=("$page_ctrl" "$nav" "$order_ctrl" "$select_all" "$sort_ctrl" "$filter_ctrl")
         fi
-        printf "${clear_line}" >&2
+
+        # Drop only hint text, in priority order. The key handlers stay active.
+        local optional joined control
+        local -a kept=()
+        for optional in "${optional_controls[@]}"; do
+            joined=""
+            for control in "${controls[@]}"; do
+                joined+="${joined:+$sep}$control"
+            done
+            [[ $(_strip_ansi_len "$joined") -gt $term_width ]] || break
+            kept=()
+            for control in "${controls[@]}"; do
+                [[ "$control" == "$optional" ]] || kept+=("$control")
+            done
+            controls=("${kept[@]}")
+        done
+        _print_wrapped_controls "$sep" "${controls[@]}"
     }
 
-    # Track previous cursor position for incremental rendering
-    local prev_cursor_pos=$cursor_pos
-    local prev_top_index=$top_index
+    # Draw the complete menu
+    draw_menu() {
+        local controls control_line control_rows=0
+        controls=$(render_controls 2>&1)
+        while IFS= read -r control_line; do
+            control_rows=$((control_rows + 1))
+        done <<< "$controls"
+        items_per_page=$(_pm_calculate_items_per_page "$control_rows")
+        local clear_line=$'\r\033[2K'
+
+        printf "\033[H" >&2
+
+        draw_header
+
+        # Visible slice
+        local visible_total=${#view_indices[@]}
+        local visible_count=$((visible_total - top_index))
+        [[ $visible_count -gt $items_per_page ]] && visible_count=$items_per_page
+        [[ $visible_count -le 0 ]] && visible_count=1
+        if [[ $cursor_pos -ge $visible_count ]]; then
+            cursor_pos=$((visible_count - 1))
+            [[ $cursor_pos -lt 0 ]] && cursor_pos=0
+        fi
+
+        printf '%b' "${clear_line}\n" >&2
+
+        # Items for current window
+        local start_idx=$top_index
+        local end_idx=$((top_index + items_per_page - 1))
+        [[ $end_idx -ge $visible_total ]] && end_idx=$((visible_total - 1))
+
+        for ((i = start_idx; i <= end_idx; i++)); do
+            [[ $i -lt 0 ]] && continue
+            local is_current=false
+            [[ $((i - start_idx)) -eq $cursor_pos ]] && is_current=true
+            render_item $((i - start_idx)) $is_current
+        done
+
+        # Fill empty slots to clear previous content
+        local items_shown=$((end_idx - start_idx + 1))
+        [[ $items_shown -lt 0 ]] && items_shown=0
+        if [[ $visible_total -eq 0 ]]; then
+            printf '%b' "${clear_line}No matches\n" >&2
+            items_shown=1
+        fi
+        for ((i = items_shown; i < items_per_page; i++)); do
+            printf '%b' "${clear_line}\n" >&2
+        done
+
+        printf '%b' "${clear_line}\n" >&2
+
+        printf '%s\n' "$controls" >&2
+        printf '%b' "${clear_line}\033[J" >&2
+    }
+
     local need_full_redraw=true
 
     # Main interaction loop
@@ -654,9 +674,6 @@ paginated_multi_select() {
         if [[ "$need_full_redraw" == "true" ]]; then
             draw_menu
             need_full_redraw=false
-            # Update tracking variables after full redraw
-            prev_cursor_pos=$cursor_pos
-            prev_top_index=$top_index
         fi
 
         local key
@@ -710,7 +727,6 @@ paginated_multi_select() {
 
                     printf "\033[%d;1H" "$((items_per_page + 4))" >&2
 
-                    prev_cursor_pos=$cursor_pos
                     continue
                 elif [[ $top_index -gt 0 ]]; then
                     ((top_index--))
@@ -734,8 +750,6 @@ paginated_multi_select() {
 
                     printf "\033[%d;1H" "$((items_per_page + 4))" >&2
 
-                    prev_cursor_pos=$cursor_pos
-                    prev_top_index=$top_index
                     continue
                 fi
                 ;;
@@ -768,7 +782,6 @@ paginated_multi_select() {
 
                             printf "\033[%d;1H" "$((items_per_page + 4))" >&2
 
-                            prev_cursor_pos=$cursor_pos
                             continue
                         elif [[ $((top_index + visible_count)) -lt ${#view_indices[@]} ]]; then
                             top_index=$((top_index + 1))
@@ -797,8 +810,6 @@ paginated_multi_select() {
 
                             printf "\033[%d;1H" "$((items_per_page + 4))" >&2
 
-                            prev_cursor_pos=$cursor_pos
-                            prev_top_index=$top_index
                             continue
                         fi
                     fi

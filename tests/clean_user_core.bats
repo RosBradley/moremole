@@ -2859,6 +2859,62 @@ EOF
     [[ "$output" == *"FOUND: regular_file.txt"* ]]
 }
 
+run_external_volume_metadata_probe() {
+    local metadata="$1" probe_status="${2:-0}"
+    local fixture_home="$BATS_TEST_TMPDIR/external-metadata"
+    mkdir -p "$fixture_home"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" MOCK_DISK_INFO="$metadata" \
+        MOCK_DISK_STATUS="$probe_status" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+mkdir -p "$HOME/bin" "$HOME/volumes/USB"
+cat > "$HOME/bin/diskutil" <<'MOCK'
+#!/bin/bash
+printf '%s\n' "$MOCK_DISK_INFO"
+exit "$MOCK_DISK_STATUS"
+MOCK
+chmod +x "$HOME/bin/diskutil"
+export PATH="$HOME/bin:$PATH"
+export MOLE_EXTERNAL_VOLUMES_ROOT="$HOME/volumes"
+validate_external_volume_target "$HOME/volumes/USB"
+EOF
+}
+
+@test "external volume metadata rejects failed probes even with a complete external plist" {
+    for probe_status in 1 124 137; do
+        run_external_volume_metadata_probe '<plist version="1.0"><dict><key>Internal</key><false/><key>BusProtocol</key><string>USB</string></dict></plist>' "$probe_status"
+        [ "$status" -ne 0 ] || return 1
+    done
+}
+
+@test "external volume metadata requires a typed external fact" {
+    for field in '' '<key>Internal</key><string>false</string>' '<key>Internal</key><integer>0</integer>'; do
+        run_external_volume_metadata_probe "<plist version=\"1.0\"><dict>$field<key>BusProtocol</key><string>USB</string></dict></plist>"
+        [ "$status" -ne 0 ] || return 1
+    done
+}
+
+@test "external volume metadata refuses malformed and internal plists" {
+    for metadata in '<plist><dict>' '<plist version="1.0"><dict><key>Internal</key><true/><key>BusProtocol</key><string>USB</string></dict></plist>'; do
+        run_external_volume_metadata_probe "$metadata"
+        [ "$status" -ne 0 ] || return 1
+    done
+}
+
+@test "external volume metadata refuses missing and network protocols" {
+    for protocol in '' SMB NFS AFP CIFS WebDAV; do
+        run_external_volume_metadata_probe "<plist version=\"1.0\"><dict><key>Internal</key><false/><key>BusProtocol</key><string>$protocol</string></dict></plist>"
+        [ "$status" -ne 0 ] || return 1
+    done
+}
+
+@test "external volume metadata accepts a complete local external plist" {
+    run_external_volume_metadata_probe '<plist version="1.0"><dict><key>Internal</key><false/><key>BusProtocol</key><string>USB</string></dict></plist>'
+    [ "$status" -eq 0 ]
+    [[ "$output" == */volumes/USB ]]
+}
+
 @test "validate_external_volume_target canonicalizes root before comparing target" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
@@ -2869,7 +2925,7 @@ mock_bin="$HOME/bin"
 mkdir -p "$mock_bin"
 cat > "$mock_bin/diskutil" <<'MOCK'
 #!/bin/bash
-exit 0
+printf '%s\n' '<plist version="1.0"><dict><key>Internal</key><false/><key>BusProtocol</key><string>USB</string></dict></plist>'
 MOCK
 chmod +x "$mock_bin/diskutil"
 export PATH="$mock_bin:$PATH"
@@ -2887,6 +2943,46 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"RESOLVED="*"/USB"* ]] || return 1
     [[ "$output" != *"must be under"* ]]
+}
+
+@test "validate_external_volume_target refuses internal volumes and an empty answer (#1818)" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+
+mock_bin="$HOME/bin-disk-location"
+mkdir -p "$mock_bin"
+cat > "$mock_bin/diskutil" <<'MOCK'
+#!/bin/bash
+printf '%s\n' "$MOCK_DISK_INFO"
+MOCK
+chmod +x "$mock_bin/diskutil"
+export PATH="$mock_bin:$PATH"
+
+volumes="$(mktemp -d "$HOME/ext-volumes.XXXXXX")"
+mkdir -p "$volumes/Data"
+export MOLE_EXTERNAL_VOLUMES_ROOT="$volumes"
+
+# Typed metadata works independently of the human-readable diskutil labels.
+export MOCK_DISK_INFO='<plist version="1.0"><dict><key>Internal</key><true/><key>BusProtocol</key><string>Apple Fabric</string></dict></plist>'
+validate_external_volume_target "$volumes/Data" > /dev/null && echo "ACCEPTED_INTERNAL"
+
+# A USB drive stays accepted.
+export MOCK_DISK_INFO='<plist version="1.0"><dict><key>Internal</key><false/><key>BusProtocol</key><string>USB</string></dict></plist>'
+validate_external_volume_target "$volumes/Data" > /dev/null && echo "ACCEPTED_EXTERNAL"
+
+# No answer (diskutil missing, failed or timed out) cannot prove external.
+export MOCK_DISK_INFO=''
+validate_external_volume_target "$volumes/Data" > /dev/null && echo "ACCEPTED_EMPTY" || true
+EOF
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Refusing to clean an internal volume"* ]] || return 1
+    [[ "$output" != *"ACCEPTED_INTERNAL"* ]] || return 1
+    [[ "$output" != *"ACCEPTED_EMPTY"* ]] || return 1
+    [[ "$output" == *"diskutil could not describe"* ]] || return 1
+    [[ "$output" == *"ACCEPTED_EXTERNAL"* ]]
 }
 
 @test "clean_app_caches caps precise sandbox size scans when many containers exist" {

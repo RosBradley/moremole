@@ -83,7 +83,8 @@ slim_host_is_apple_silicon() {
         return
     fi
     # uname -m reports x86_64 inside a Rosetta shell; the sysctl does not.
-    [[ "$(sysctl -n hw.optional.arm64 2> /dev/null || echo 0)" == "1" ]]
+    # Absolute path: a PATH without /usr/sbin made every Mac read as Intel (#1804).
+    [[ "$(/usr/sbin/sysctl -n hw.optional.arm64 2> /dev/null || echo 0)" == "1" ]]
 }
 
 slim_plist_value() {
@@ -381,12 +382,19 @@ collect_slim_candidates() {
     SLIM_APP_PLANS=()
 
     local -a apps=()
-    local root app
+    local root dir app
     while IFS= read -r root; do
         [[ -d "$root" ]] || continue
-        for app in "$root"/*.app; do
-            [[ -e "$app" || -L "$app" ]] || continue
-            apps+=("$app")
+        # One level of plain folders such as Utilities (#1811); never a bundle
+        # or a symlinked folder, and every app still passes the same checks.
+        for dir in "$root" "$root"/*; do
+            if [[ "$dir" != "$root" ]]; then
+                [[ "$dir" != *.app && -d "$dir" && ! -L "$dir" ]] || continue
+            fi
+            for app in "$dir"/*.app; do
+                [[ -e "$app" || -L "$app" ]] || continue
+                apps+=("$app")
+            done
         done
     done < <(slim_app_roots)
 
@@ -429,17 +437,35 @@ collect_slim_candidates() {
     return 0
 }
 
+slim_name_column_width() {
+    local columns="${COLUMNS:-$(tput cols 2> /dev/null || echo 80)}"
+    [[ "$columns" =~ ^[0-9]+$ && "$columns" -gt 0 ]] || columns=80
+    local name width max_width=18 available=$((columns - 14))
+    for name in "${SLIM_APP_NAMES[@]}"; do
+        width=$(get_display_width "$(mole_terminal_safe_text "$name")")
+        [[ $width -le $max_width ]] || max_width=$width
+    done
+    # Match the app selector's bounded name column, with no date column.
+    # Reserve four cells for the menu prefix, one gap and nine for size.
+    [[ $max_width -le 60 ]] || max_width=60
+    [[ $max_width -le $available ]] || max_width=$available
+    [[ $max_width -ge 1 ]] || max_width=1
+    printf '%s\n' "$max_width"
+}
+
 slim_display_row() {
     local name width
-    name=$(truncate_by_display_width "$(mole_terminal_safe_text "$1")" 36)
+    local name_width="$3"
+    name=$(truncate_by_display_width "$(mole_terminal_safe_text "$1")" "$name_width")
     width=$(get_display_width "$name")
-    printf '%s%*s %10s' "$name" "$((36 - width))" "" "$(bytes_to_human "$2")"
+    printf '%s%*s %9s' "$name" "$((name_width - width))" "" "$(bytes_to_human "$2")"
 }
 
 print_slim_list() {
-    local i total=0
+    local i total=0 name_width
+    name_width=$(slim_name_column_width)
     for ((i = 0; i < ${#SLIM_APP_PATHS[@]}; i++)); do
-        printf '  %s\n' "$(slim_display_row "${SLIM_APP_NAMES[i]}" "${SLIM_APP_BYTES[i]}")"
+        printf '  %s\n' "$(slim_display_row "${SLIM_APP_NAMES[i]}" "${SLIM_APP_BYTES[i]}" "$name_width")"
         total=$((total + SLIM_APP_BYTES[i]))
     done
     printf '\n%s apps, %s of Intel code\n' "${#SLIM_APP_PATHS[@]}" "$(bytes_to_human "$total")"
@@ -457,17 +483,26 @@ slim_thin_file() {
     info=$(slim_arm_slice "$file") || return 1
     read -r off size _intel <<< "$info"
 
-    local out="$file.mole-slim" mode
+    local out mode
     mode=$("$STAT_BSD" -f %Lp "$file") || return 1
+    # Bundle contents can already include any fixed suffix, including a link.
+    # Create the output exclusively rather than opening a bundle-owned path.
+    out=$(mktemp "$file.mole-slim.XXXXXX") || return 1
     # head stops reading once it has the slice, so when the slice is not the
     # last one tail dies of SIGPIPE; the size and Mach-O checks below are what
     # decide whether the copy is whole.
-    { tail -c +"$((off + 1))" "$file" 2> /dev/null || true; } | head -c "$size" > "$out" 2> /dev/null || return 1
+    if ! { tail -c +"$((off + 1))" "$file" 2> /dev/null || true; } | head -c "$size" > "$out" 2> /dev/null; then
+        rm -f "$out" # SAFE: exclusively created slice output inside the staging copy
+        return 1
+    fi
     if [[ "$("$STAT_BSD" -f %z "$out" 2> /dev/null)" != "$size" ]] || ! slim_is_thin_arm "$out"; then
         rm -f "$out" # SAFE: partial slice written by this function inside the staging copy
         return 1
     fi
-    chmod "$mode" "$out" && mv -f "$out" "$file"
+    if ! chmod "$mode" "$out" || ! mv -f "$out" "$file"; then
+        rm -f "$out" # SAFE: exclusively created slice output that was not installed
+        return 1
+    fi
 }
 
 # Every check runs on the slimmed copy; any failure keeps the original.
@@ -613,24 +648,28 @@ slim_one_app() {
 }
 
 select_slim_apps() {
-    local -a rows=() sizes_kb=()
-    local i
+    local -a rows=() sizes_kb=() names=()
+    local i name_width
+    name_width=$(slim_name_column_width)
     for ((i = 0; i < ${#SLIM_APP_PATHS[@]}; i++)); do
-        rows+=("$(slim_display_row "${SLIM_APP_NAMES[i]}" "${SLIM_APP_BYTES[i]}")")
+        rows+=("$(slim_display_row "${SLIM_APP_NAMES[i]}" "${SLIM_APP_BYTES[i]}" "$name_width")")
         sizes_kb+=("$((SLIM_APP_BYTES[i] / 1024))")
+        names+=("$(mole_terminal_safe_text "${SLIM_APP_NAMES[i]}")")
     done
     MOLE_MENU_META_SIZEKB=$(
         IFS=','
         printf '%s' "${sizes_kb[*]}"
     )
     export MOLE_MENU_META_SIZEKB
+    MOLE_MENU_FILTER_NAMES=$(printf '%s\n' "${names[@]}")
+    export MOLE_MENU_FILTER_NAMES
     export MOLE_MENU_SORT_MODE=size
     export MOLE_MENU_SORT_REVERSE=false
 
     MOLE_SELECTION_RESULT=""
     local rc=0
     paginated_multi_select "Select apps to slim" "${rows[@]}" || rc=$?
-    unset MOLE_MENU_META_SIZEKB
+    unset MOLE_MENU_META_SIZEKB MOLE_MENU_FILTER_NAMES
     [[ $rc -eq 0 && -n "$MOLE_SELECTION_RESULT" ]]
 }
 
@@ -648,7 +687,10 @@ confirm_slim_selection() {
     echo -ne "${PURPLE}${ICON_ARROW}${NC} Slim ${#indices[@]} apps, $(bytes_to_human "$total")  ${GREEN}Enter${NC} confirm, ${GRAY}ESC${NC} cancel: "
 
     local confirm
-    IFS= read -r -s -n1 confirm || confirm=""
+    if ! IFS= read -r -s -n1 confirm; then
+        printf '\n'
+        return 1
+    fi
     case "$confirm" in
         "" | $'\n' | $'\r')
             printf '\r\033[K\n'

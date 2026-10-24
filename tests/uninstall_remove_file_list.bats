@@ -785,6 +785,7 @@ SCRIPT
 }
 
 @test "uninstall records access denial from the actual direct Trash mover" {
+    mole_test_fake_command mv 'printf "mv: Permission denied\n" >&2; exit 1'
     run /bin/bash --noprofile --norc <<'SCRIPT'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
@@ -796,7 +797,6 @@ export MOLE_UNINSTALL_MODE=1
 victim="$HOME/Library/Group Containers/com.example.Privacy"
 mkdir -p "$victim"
 _mole_should_refuse_live_user_cache_path() { return 1; }
-mv() { printf 'mv: Permission denied\n' >&2; return 1; }
 osascript() { echo unexpected-Finder >> "$HOME/unexpected"; return 99; }
 safe_remove() { echo unexpected-delete >> "$HOME/unexpected"; return 99; }
 collect() {

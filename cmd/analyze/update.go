@@ -166,6 +166,8 @@ func (m *model) cancelLiveScan() {
 	m.liveScanCancel = nil
 	m.liveScanEvents = nil
 	m.liveScanningPaths = nil
+	m.liveEntryIndex = nil
+	m.liveEntriesDirty = false
 	m.autoSortLiveEntries = false
 }
 
@@ -202,18 +204,23 @@ func (m *model) applyLiveChildSize(entry dirEntry, complete bool, result scanRes
 	}
 
 	m.ensureLiveEntryBacking()
-	previousSize := int64(-1)
-	found := false
-	for i := range m.entriesAll {
-		if m.entriesAll[i].Path == entry.Path {
-			previousSize = m.entriesAll[i].Size
-			m.entriesAll[i] = entry
-			found = true
-			break
+	if m.liveEntryIndex == nil {
+		m.liveEntryIndex = make(map[string]int, len(m.entriesAll))
+		for i := range m.entriesAll {
+			m.liveEntryIndex[m.entriesAll[i].Path] = i
 		}
 	}
-	if !found {
+	previousSize := int64(-1)
+	if i, found := m.liveEntryIndex[entry.Path]; found {
+		previousSize = m.entriesAll[i].Size
+		m.entriesAll[i] = entry
+	} else {
+		m.liveEntryIndex[entry.Path] = len(m.entriesAll)
 		m.entriesAll = append(m.entriesAll, entry)
+	}
+	// The unfiltered view shares the backing rows, including after append.
+	if m.entryFilter == "" {
+		m.entries = m.entriesAll
 	}
 
 	m.totalSize += max(entry.Size, 0) - max(previousSize, 0)
@@ -226,13 +233,27 @@ func (m *model) applyLiveChildSize(entry dirEntry, complete bool, result scanRes
 		childResult.Entries = filterNonEmptyEntries(result.Entries)
 		m.cache[entry.Path] = historyEntryFromScanResult(entry.Path, childResult, m.cache[entry.Path], true)
 	}
+	// Account for every result immediately; reorder and rebuild filtered rows
+	// once per existing display tick, rather than once per child event.
+	m.liveEntriesDirty = true
+	m.clampEntrySelection()
+	m.status = fmt.Sprintf("Scanning %s...", displayPath(m.path))
+}
+
+func (m *model) flushLiveEntryUpdates() {
+	if !m.liveEntriesDirty {
+		return
+	}
+	m.liveEntriesDirty = false
 	if m.autoSortLiveEntries {
 		m.sortLiveEntriesForActiveMode()
 	} else {
+		selectedPath := m.selectedEntryPath()
 		m.applyEntryFilter()
+		if selectedPath != "" {
+			m.selectEntryPath(selectedPath)
+		}
 	}
-	m.clampEntrySelection()
-	m.status = fmt.Sprintf("Scanning %s...", displayPath(m.path))
 }
 
 func (m *model) finishLiveScan(result scanResult) {
@@ -242,6 +263,8 @@ func (m *model) finishLiveScan(result scanResult) {
 	m.liveScanCancel = nil
 	m.liveScanEvents = nil
 	m.liveScanningPaths = nil
+	m.liveEntryIndex = nil
+	m.liveEntriesDirty = false
 	m.autoSortLiveEntries = false
 
 	filteredEntries := filterNonEmptyEntries(result.Entries)
@@ -291,6 +314,8 @@ func (m *model) sortLiveEntriesForActiveMode() {
 		selectedPath = m.selectedEntryPath()
 	}
 	sortDirEntriesBySize(m.entriesAll)
+	m.liveEntryIndex = nil
+	m.liveEntriesDirty = false
 	m.applyEntryFilter()
 	if m.liveSortMode == liveSortFreezeOnMove {
 		m.selected = 0
@@ -579,6 +604,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tickMsg:
+		m.flushLiveEntryUpdates()
 		hasPending := false
 		if m.inOverviewMode() {
 			for _, entry := range m.entries {

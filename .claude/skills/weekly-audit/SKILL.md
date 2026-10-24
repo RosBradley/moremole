@@ -1,16 +1,13 @@
 ---
 name: weekly-audit
 description: >-
-  Weekly whole-repo audit of Mole CLI (macOS, main) and Mole CLI (Windows, the
-  windows branch) across five dimensions (unsafe, over-design, stale,
-  performance, not yet codified), every finding refuted once before it is
-  reported, then the approved fixes landed per branch. Use for 每周体检, 全面检查
-  CLI, 看看 Mole 和 Windows 版还有什么要优化 / 沉淀 / 不安全 / 过度设计 / 过时.
-  Not for one reported bug (/hunt), a safety-sensitive diff (bugs), or a PR
-  review (/check).
+  Audit both Mole CLI branches for safety, correctness, performance and stale
+  guidance, then land authorized fixes. Use for weekly or whole-CLI reviews.
+  Not for a single defect or individual PR review.
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
   internal: true
+  when_to_use: "每周体检、全面检查 CLI、审查 macOS 和 Windows CLI"
 ---
 
 # Weekly Audit (CLI)
@@ -28,36 +25,52 @@ survive refutation. Run it once a week and keep the report short.
 ## Phase 1: Freeze and scope
 
 - For each branch record `git rev-parse HEAD`, the remote head, `git status
-  --short`, and `git log --oneline <base>..HEAD`. `main` is this checkout; `windows`
+  --short --branch -uall`, and `git log --oneline <base>..<audited-head>`. `main` is this checkout; `windows`
   is its own worktree (`git worktree list`), never checked out over `main`. Fetch
   the remote branch read-only (`git fetch origin windows`) and audit
-  `origin/windows` when no clean worktree is at its head.
+  `origin/windows` when no clean worktree is at its head. Freeze the merged PR
+  IDs and count for the same window. Use raw output or structured results for
+  counts, test summaries and complete coverage; RTK summaries may omit entries.
 - Read the newest entry of `docs/weekly-audit.md` on `main`: its "Next window
   from" commits are this run's base per branch, its "Decided, do not re-report"
   list goes to every agent, and its "Open" items are rechecked first. The codify
-  dimension reads only that window; the others read the whole tree.
+  dimension reads that window; the others follow the scope selected below.
 - Exclude `tests/tmp-*`, `.git`, build output and other sessions' worktrees from
   every grep.
-- Pick the scope. Both branches whole on the first run, after a release, or when the
+- An explicit whole-codebase request takes precedence over incremental defaults.
+  Otherwise audit both branches whole on the first run, after a release, or when the
   window touched more than about 40 source files; otherwise incremental: the files
   changed in each branch's window, their direct callers, and every Open item. Mole
   for Windows' first whole-tree run cost about 1.15M sub-agent tokens for 18 findings,
   most in code untouched for weeks.
 - Read-only until Phase 4. "看看 / 检查 / 跑一遍" never authorizes a write.
+- Record coverage by module and evidence level. Before reporting or writing,
+  recheck both heads and worktrees; review new commits and preserve concurrent
+  edits. Reconcile the frozen PR set and list newly merged PRs separately.
 
 ## Phase 2: Five read-only audits in parallel
 
-One sub-agent per dimension, each started from the matching prompt in
+Assign each dimension to a sub-agent, batching assignments to fit available
+slots. Start from the matching prompt in
 `references/prompts.md` (shared header plus dimension body) so coverage does not
 drift between runs, each covering both branches and naming which branch
 every finding belongs to. Read-only: no edit, commit, build, real cleanup or
-`sudo`. Tests may run only with `MOLE_TEST_NO_AUTH=1` against fixtures; PowerShell
-behavior cannot run on macOS, so Windows findings rest on reading the code and its
-Pester tests. Each agent must try to refute every candidate once (find the guard
+`sudo`. Tests may run only with `MOLE_TEST_NO_AUTH=1` against isolated fixtures.
+Discover available test hosts: shared Go tests may run on macOS; PowerShell
+behavior needs a Windows host, an available VM or native CI. Record the host,
+shell version and source SHA. Do not change machine settings or install tools
+without authorization. Each agent must try to refute every candidate once (find the guard
 that already blocks it, the test that locks it, or the AGENTS.md / `.claude/rules/` / SYNC.md line
 recording the decision, which may sit on the other branch, so grep both before
 reporting) and report only survivors, with `branch:file:line`, a concrete failure
 scenario and the smallest fix.
+
+Correctness is mandatory across the five dimensions: compare TUI and JSON,
+initial/live/completed/cached results, selection identity, empty and partial
+results, encoding, exit status and cancellation. A bounded recursive summary
+must not truncate a directly browsable child list. For each repaired contract,
+inspect the other CLI's actual consumer and route applicable gaps through an
+existing SYNC.md row before adding a new one.
 
 1. **Unsafe.** macOS: every removal goes through `mole_delete` / `safe_clean` /
    `safe_remove` or carries a same-line `# SAFE:` reason; matching stays on exact
@@ -90,7 +103,9 @@ scenario and the smallest fix.
    Pester on windows), versions, paths, make targets and commands still exist,
    comments naming removed functions. The "latest stable" and "not released"
    lines in SYNC.md on both branches go stale with every release; check them
-   against `gh release list` first. These files deliberately record removed and
+   against `gh release list`, tag ancestry and delivery receipts first.
+   Published metadata and source ancestry do not prove asset contents; mark
+   package delivery unverified when receipts are missing. These files deliberately record removed and
    rejected things; read the context before calling a line stale.
 4. **Performance.** Forks per item inside loops that scale with app or file count
    (`basename`, `tr`, `$(...)`, `stat` per entry), repeated `du` or `find` over the
@@ -107,10 +122,12 @@ scenario and the smallest fix.
 
 ## Phase 3: Report
 
-One merged report, ranked by risk: unsafe, codify, performance, over-design,
-stale. Each row: branch, what, where, evidence, smallest fix, and whether it
-needs the maintainer (user-visible behavior, a new or removed flag, a recorded
-decision, a release). Verify the weakest high-severity claim yourself before
+One merged report ranked by actual risk. Each row: branch, what, where,
+evidence, smallest fix, and any product decision or authorization still needed.
+Label findings reproduced, statically confirmed or unresolved, and name
+uncovered modules or runtime boundaries. A helper reproduction does not prove
+the full signed-app or deletion entrypoint is reachable. Routine repairs within
+an authorized batch do not need a second approval. Verify the weakest high-severity claim yourself before
 reporting it: read the code, or reproduce with a fixture `HOME` and
 `MOLE_TEST_NO_AUTH=1`. End with what was checked and found fine, and the
 questions only the maintainer can answer. Mole for Windows (the paid app) and
@@ -119,31 +136,35 @@ candidate.
 
 ## Phase 4: Land what the maintainer approves
 
-- One detached worktree per fix family (`git worktree add --detach <dir>/wt-<n>
-  origin/main`, or `origin/windows`; no side branches, the maintainer works on main
-  and windows), no two agents on the same file, local commits only. Start each
-  agent from the fix header in `references/prompts.md`. Do not put a worktree you run Bats in under
+- Work on the existing `main` and `windows` branches under the current Git Safety
+  contract. Synchronize first without discarding WIP, assign non-overlapping
+  files, and let the main session integrate, commit and push the authorized scope.
+  Do not require temporary branches, detached worktrees or draft PRs. Start each
+  agent from the fix header in `references/prompts.md`. Do not put a fixture checkout you run Bats in under
   `/private/tmp`: `validate_path_for_deletion` allows that tree before
   `should_protect_path`, so sink tests there fail on clean code (the first run's
-  agents each reported three such false reds). Stack and run the full suite in
-  the main checkout.
+  agents each reported three such false reds). Run the full suite on the
+  integrated branch state after confirming ownership of every changed file.
+  Do not use unsettled edits from another session as evidence for this repair.
 - Every behavior fix carries a test that fails on the old code (red-run by
-  restoring the old source in the worktree) and, when it states a new invariant,
+  adding the test before the fix, or using an isolated source snapshot/overlay;
+  never restore old source over another session's edits) and, when it states a new invariant,
   the AGENTS.md or `.claude/rules/` line on that branch.
 - macOS: `./scripts/check.sh --no-format`, shellcheck on changed tests, then the
-  full `TERM=xterm-256color MOLE_TEST_NO_AUTH=1 ./scripts/test.sh` on the stacked
+  full `TERM=xterm-256color MOLE_TEST_NO_AUTH=1 ./scripts/test.sh` on the integrated
   result before pushing `main`. Windows: `gofmt -l cmd`, `GOOS=windows go build
-  ./cmd/...` locally, and the Windows CI result on a pushed branch or PR, because
-  Pester cannot run here; never report a Windows fix as verified from macOS alone.
-  Red-run on CI: push the test-only commit to the draft PR first, wait for the
-  Pester job to fail on it under both `powershell` and `pwsh` (or name the shell
-  that stays green and why), then push the fix. When the test reaches into a
+  ./cmd/...` locally, then native fixtures under both `powershell` and `pwsh`
+  on an available Windows host or CI. A shared Go fixture, cross-build, native
+  Pester run and package acceptance are separate evidence. Red-run before the
+  fix locally where possible; otherwise use an isolated native snapshot.
+  Do not require a public test-only PR. If a host is unavailable, report the
+  missing layer. When the test reaches into a
   helper the fix introduced (Pester extracting a function from the script),
   restoring the old file fails the whole test file at discovery, which proves
   nothing; break only the judged condition in the new code instead and check
   that exactly that `It` fails. The first run's junction test was proven that
   way after the fact (draft PR #1754).
-- Agent reports are leads. Before stacking, read each agent's deviations from its
+- Agent reports are leads. Before integration, read each agent's deviations from its
   brief and accept or undo each one, verify every "this does nothing" or "baseline
   already fails" claim yourself, and close each agent's "not done / outside my
   files" list in the integration commit. In the first run one agent called
@@ -154,6 +175,9 @@ candidate.
   Open, each with the question it waits on.
 - Commit identity and push follow the global Git Safety rules; contributor PRs
   keep their own review path.
+- After pushing either branch, inspect required CI through structured status and
+  conclusion at its exact remote SHA. Native fixtures supplement this check;
+  cancelled or absent jobs do not count as passing.
 - An approved rule compression or split follows `references/rule-compression.md`; its second-agent meaning
   review is part of the fix, since the mechanical gates passed while 73 real losses remained (2026-10-17).
 - Prepend the run to `docs/weekly-audit.md` (audited and landed commits per
