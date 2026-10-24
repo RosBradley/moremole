@@ -228,10 +228,9 @@ interactive_main_menu() {
         exit 0
     }
 
+    # moremole: commands return to the menu when they finish.
     launch_menu_command() {
-        show_cursor
-        drain_pending_input 0.1
-        run_mole_command "$@"
+        moremole_run_and_return "$@"
     }
 
     trap cleanup_and_exit INT

@@ -1,7 +1,7 @@
 #!/bin/bash
-# moremole: the main menu lists every command from the More screen plus the
-# user's own commands. Each command gets one row, with its preview and other
-# variants beside it.
+# moremole: the main menu lists every command from the More screen, one row
+# per command with its preview and other variants beside it, then the user's
+# own commands in a section of their own. Commands return to the menu.
 # Sourced by the mole router after lib/manage/update.sh. Everything moremole
 # changes lives here so upstream Mole updates merge with few conflicts.
 
@@ -15,35 +15,38 @@ readonly MOREMOLE_MENU_LOADED=1
 MOREMOLE_MY_COMMANDS_FILE="$HOME/.config/mole/my_commands"
 
 # Every command from the More screen, one menu row each. Cells are separated
-# by ";" and hold label|kind|args. "mole" runs bin/<first word>.sh with the
-# remaining words; "update" runs update_mole.
+# by ";" and hold label|kind|args|description. "mole" runs bin/<first
+# word>.sh with the remaining words; "update" runs update_mole.
 readonly MOREMOLE_BUILTIN_ROWS=(
-    "Clean|mole|clean;Preview|mole|clean --dry-run;Protected caches|mole|clean --whitelist"
-    "Uninstall|mole|uninstall;Preview|mole|uninstall --dry-run"
-    "Optimize|mole|optimize;Preview|mole|optimize --dry-run;Protected items|mole|optimize --whitelist"
-    "Analyze|mole|analyze;External drives|mole|analyze /Volumes"
-    "Status|mole|status"
-    "History|mole|history;Export|mole|history --json"
-    "Purge|mole|purge;Preview|mole|purge --dry-run;Choose folders|mole|purge --paths"
-    "Installer files|mole|installer;Preview|mole|installer --dry-run"
-    "Slim Intel code|mole|slim;Preview|mole|slim --dry-run"
-    "Touch ID|mole|touchid;Preview|mole|touchid enable --dry-run"
-    "Shell completion|mole|completion;Preview|mole|completion --dry-run"
-    "Update from Mole|update|"
+    "Clean|mole|clean|Free up disk space;Preview|mole|clean --dry-run|Show what Clean would remove, without removing anything;Protected caches|mole|clean --whitelist|Choose caches that Clean must never remove"
+    "Uninstall|mole|uninstall|Remove apps completely;Preview|mole|uninstall --dry-run|Show what Uninstall would remove, without removing anything"
+    "Optimize|mole|optimize|Refresh caches and services;Preview|mole|optimize --dry-run|Show what Optimize would do, without changing anything;Protected items|mole|optimize --whitelist|Choose items that Optimize must leave alone"
+    "Analyze|mole|analyze|Explore disk usage;External drives|mole|analyze /Volumes|Explore disk usage on external drives only"
+    "Status|mole|status|Monitor system health"
+    "History|mole|history|Review cleanup activity;Export|mole|history --json|Print cleanup history as JSON"
+    "Purge|mole|purge|Remove old project build files;Preview|mole|purge --dry-run|Show what Purge would remove, without removing anything;Choose folders|mole|purge --paths|Choose the folders Purge scans for projects"
+    "Installer files|mole|installer|Find and remove installer files;Preview|mole|installer --dry-run|Show what would be removed, without removing anything"
+    "Slim Intel code|mole|slim|Remove Intel code from universal apps;Preview|mole|slim --dry-run|Show what Slim would remove, without removing anything"
+    "Touch ID|mole|touchid|Use Touch ID for sudo;Preview|mole|touchid enable --dry-run|Show what Touch ID setup would change, without changing it"
+    "Shell completion|mole|completion|Set up tab completion for mo;Preview|mole|completion --dry-run|Show the shell setup edits, without making them"
+    "Update from Mole|update||Bring in Mole's latest changes and keep moremole's"
 )
+readonly MOREMOLE_SECTION_LABEL="My commands"
 readonly MOREMOLE_EDIT_LABEL="Edit my commands..."
-# The editor and the user's commands share rows, this many cells per row.
+readonly MOREMOLE_EDIT_DESC="Add or remove your own commands"
 readonly MOREMOLE_MENU_COLUMNS=3
 
 # Lines show_main_menu prints around the items: a blank line, the five-line
-# banner and a blank line above; a blank line, the controls and a blank line
-# below; plus the row the cursor rests on so the last line cannot scroll.
-readonly MOREMOLE_MENU_OVERHEAD=11
+# banner and a blank line above; a blank line and the description, then a
+# blank line, the controls and a blank line below; plus the row the cursor
+# rests on so the last line cannot scroll.
+readonly MOREMOLE_MENU_OVERHEAD=13
 
 # One entry per menu item, in reading order (row by row, left to right).
 declare -a MOREMOLE_MENU_LABELS=()
 declare -a MOREMOLE_MENU_KINDS=()
 declare -a MOREMOLE_MENU_ARGS=()
+declare -a MOREMOLE_MENU_DESCS=()
 declare -a MOREMOLE_MENU_COLS=()
 # One entry per row: index of its first item and its number of items.
 declare -a MOREMOLE_MENU_ROW_START=()
@@ -58,6 +61,7 @@ MOREMOLE_MENU_TOP_ROW=0
 declare -a MOREMOLE_LAYOUT_WIDTHS=()
 MOREMOLE_LAYOUT_MAX_LABEL=1
 MOREMOLE_LAYOUT_VISIBLE_ROWS=1
+MOREMOLE_LAYOUT_TERM_COLS=80
 
 # Read the user's commands. Each line is "name<TAB>command"; blank lines,
 # lines starting with # and lines missing either part are skipped.
@@ -80,9 +84,10 @@ moremole_read_my_commands() {
     done < "$MOREMOLE_MY_COMMANDS_FILE"
 }
 
-# Append one item at column $4 of the current last row ($4 = 0 starts a row).
+# Append item label|kind|args|description at column $5 of the current last
+# row; column 0 starts a new row.
 _moremole_add_item() {
-    local column="$4"
+    local column="$5"
     if [[ "$column" -eq 0 ]]; then
         MOREMOLE_MENU_ROW_START+=("${#MOREMOLE_MENU_LABELS[@]}")
         MOREMOLE_MENU_ROW_LEN+=(0)
@@ -92,6 +97,7 @@ _moremole_add_item() {
     MOREMOLE_MENU_LABELS+=("$1")
     MOREMOLE_MENU_KINDS+=("$2")
     MOREMOLE_MENU_ARGS+=("$3")
+    MOREMOLE_MENU_DESCS+=("$4")
     MOREMOLE_MENU_COLS+=("$column")
 }
 
@@ -99,31 +105,34 @@ moremole_load_menu_items() {
     MOREMOLE_MENU_LABELS=()
     MOREMOLE_MENU_KINDS=()
     MOREMOLE_MENU_ARGS=()
+    MOREMOLE_MENU_DESCS=()
     MOREMOLE_MENU_COLS=()
     MOREMOLE_MENU_ROW_START=()
     MOREMOLE_MENU_ROW_LEN=()
 
-    local spec cell rest column
+    local spec cell label kind args column
     local -a cells=()
     for spec in "${MOREMOLE_BUILTIN_ROWS[@]}"; do
         IFS=';' read -r -a cells <<< "$spec"
         column=0
         for cell in "${cells[@]}"; do
-            rest="${cell#*|}"
-            _moremole_add_item "${cell%%|*}" "${rest%%|*}" "${rest#*|}" "$column"
+            label="${cell%%|*}"
+            cell="${cell#*|}"
+            kind="${cell%%|*}"
+            cell="${cell#*|}"
+            args="${cell%%|*}"
+            _moremole_add_item "$label" "$kind" "$args" "${cell#*|}" "$column"
             column=$((column + 1))
         done
     done
 
-    # The editor comes first, then the user's commands fill the rows after it.
-    _moremole_add_item "$MOREMOLE_EDIT_LABEL" "edit" "" 0
+    # The user's section: a heading, the editor, then one command per row.
+    _moremole_add_item "$MOREMOLE_SECTION_LABEL" "header" "" "" 0
+    _moremole_add_item "$MOREMOLE_EDIT_LABEL" "edit" "" "$MOREMOLE_EDIT_DESC" 0
     moremole_read_my_commands
     local i
-    column=1
     for ((i = 0; i < ${#MOREMOLE_MY_NAMES[@]}; i++)); do
-        ((column < MOREMOLE_MENU_COLUMNS)) || column=0
-        _moremole_add_item "${MOREMOLE_MY_NAMES[i]}" "custom" "${MOREMOLE_MY_COMMANDS[i]}" "$column"
-        column=$((column + 1))
+        _moremole_add_item "${MOREMOLE_MY_NAMES[i]}" "custom" "${MOREMOLE_MY_COMMANDS[i]}" "Runs: ${MOREMOLE_MY_COMMANDS[i]}" 0
     done
 }
 
@@ -146,6 +155,7 @@ _moremole_menu_layout() {
     size="$(_moremole_terminal_size)"
     term_lines="${size%% *}"
     term_cols="${size##* }"
+    MOREMOLE_LAYOUT_TERM_COLS=$term_cols
 
     # Three columns always fit: long labels are shortened instead.
     MOREMOLE_LAYOUT_MAX_LABEL=$((term_cols / MOREMOLE_MENU_COLUMNS - 4))
@@ -187,7 +197,8 @@ _moremole_item_row() {
     printf '%s\n' "$row"
 }
 
-# Draw the items with $1 (1-based) selected, one terminal line per row.
+# Draw the items with $1 (1-based) selected, one terminal line per row, then
+# a line describing the selected item.
 moremole_show_menu_items() {
     local selected="${1:-1}"
     ((${#MOREMOLE_MENU_LABELS[@]} > 0)) || moremole_load_menu_items
@@ -205,17 +216,22 @@ moremole_show_menu_items() {
     ((MOREMOLE_MENU_TOP_ROW <= rows - visible)) || MOREMOLE_MENU_TOP_ROW=$((rows - visible))
     ((MOREMOLE_MENU_TOP_ROW >= 0)) || MOREMOLE_MENU_TOP_ROW=0
 
-    local row column index label line pad
+    local row column index label kind line pad
     for ((row = MOREMOLE_MENU_TOP_ROW; row < MOREMOLE_MENU_TOP_ROW + visible; row++)); do
         line=""
         for ((column = 0; column < MOREMOLE_MENU_ROW_LEN[row]; column++)); do
             index=$((MOREMOLE_MENU_ROW_START[row] + column))
             label="${MOREMOLE_MENU_LABELS[index]}"
+            kind="${MOREMOLE_MENU_KINDS[index]}"
             if ((${#label} > max)); then
                 label="${label:0:$((max - 3))}..."
             fi
-            if ((index + 1 == selected)); then
+            if [[ "$kind" == "header" ]]; then
+                line+="  ${BLUE}── ${label} ──${NC}"
+            elif ((index + 1 == selected)); then
                 line+="${CYAN}${ICON_ARROW} ${label}${NC}"
+            elif [[ "$kind" == "edit" ]]; then
+                line+="  ${GREEN}${label}${NC}"
             else
                 line+="  ${label}"
             fi
@@ -239,10 +255,19 @@ moremole_show_menu_items() {
         fi
         printf '\r\033[2K  %s%s%s\n' "$GRAY" "$hint" "$NC"
     fi
+
+    # One line only: a description wider than the window is shortened.
+    local desc="${MOREMOLE_MENU_DESCS[selected - 1]:-}"
+    local room=$((MOREMOLE_LAYOUT_TERM_COLS - 4))
+    if ((room > 3 && ${#desc} > room)); then
+        desc="${desc:0:$((room - 3))}..."
+    fi
+    printf '\r\033[2K\n\r\033[2K  %s%s%s\n' "$GRAY" "$desc" "$NC"
 }
 
 # Print the item number (1-based) reached from $1 by key $2. Up and down keep
-# the column where the next row has one, else take that row's last item.
+# the column where the next row has one, else take that row's last item, and
+# step over the section heading.
 moremole_menu_move() {
     local current="$1" key="$2"
     ((${#MOREMOLE_MENU_LABELS[@]} > 0)) || moremole_load_menu_items
@@ -251,7 +276,7 @@ moremole_menu_move() {
     local rows=${#MOREMOLE_MENU_ROW_START[@]}
     local index=$((current - 1))
     ((index >= 0 && index < count)) || index=0
-    local row column target
+    local row column target step=1
     row=$(_moremole_item_row "$index")
     column=${MOREMOLE_MENU_COLS[index]}
 
@@ -259,11 +284,12 @@ moremole_menu_move() {
         LEFT) ((column == 0)) || index=$((index - 1)) ;;
         RIGHT) ((column + 1 >= MOREMOLE_MENU_ROW_LEN[row])) || index=$((index + 1)) ;;
         UP | DOWN)
-            if [[ "$key" == "UP" ]]; then
-                target=$((row - 1))
-            else
-                target=$((row + 1))
-            fi
+            [[ "$key" == "DOWN" ]] || step=-1
+            target=$((row + step))
+            while ((target >= 0 && target < rows)) &&
+                [[ "${MOREMOLE_MENU_KINDS[MOREMOLE_MENU_ROW_START[target]]}" == "header" ]]; do
+                target=$((target + step))
+            done
             if ((target >= 0 && target < rows)); then
                 ((column < MOREMOLE_MENU_ROW_LEN[target])) || column=$((MOREMOLE_MENU_ROW_LEN[target] - 1))
                 index=$((MOREMOLE_MENU_ROW_START[target] + column))
@@ -275,8 +301,35 @@ moremole_menu_move() {
     printf '%s\n' "$((index + 1))"
 }
 
-# Run item $1 (1-based). Commands replace the menu, as in the original menu;
-# the editor returns so the menu can redraw with the changes.
+# Run a command, then come back to the menu. Full-screen commands (Analyze,
+# Status) return straight away; others wait for Enter so their output can be
+# read first. Also used by the 1-5 shortcuts in mole.
+moremole_run_and_return() {
+    local answer=""
+    show_cursor
+    drain_pending_input 0.1
+    # Ctrl-C stops the command, not the menu, whose own handler would quit.
+    # The command starts with the default action, so it still stops.
+    trap ':' INT
+    (run_mole_command "$@") || true
+    if declare -F cleanup_and_exit > /dev/null; then
+        trap cleanup_and_exit INT
+    else
+        trap - INT
+    fi
+    case "$1" in
+        */bin/analyze.sh | */bin/status.sh) ;;
+        *)
+            printf '\n%sPress Enter to return to the menu.%s' "$GRAY" "$NC"
+            IFS= read -r answer || true
+            ;;
+    esac
+    hide_cursor
+    clear
+}
+
+# Run item $1 (1-based). Commands and the editor return to the menu; Update
+# ends it, because the files it runs from may have just changed.
 moremole_menu_activate() {
     local index=$(($1 - 1))
     local kind="${MOREMOLE_MENU_KINDS[index]:-}"
@@ -286,28 +339,25 @@ moremole_menu_activate() {
         mole)
             local -a words=()
             read -r -a words <<< "$args"
-            show_cursor
-            drain_pending_input 0.1
             if ((${#words[@]} > 1)); then
-                run_mole_command "$SCRIPT_DIR/bin/${words[0]}.sh" "${words[@]:1}"
+                moremole_run_and_return "$SCRIPT_DIR/bin/${words[0]}.sh" "${words[@]:1}"
             else
-                run_mole_command "$SCRIPT_DIR/bin/${words[0]}.sh"
+                moremole_run_and_return "$SCRIPT_DIR/bin/${words[0]}.sh"
             fi
             ;;
         update)
             show_cursor
             clear
             update_mole false false
+            printf '\nStart moremole again to use the updated version.\n'
             exit 0
             ;;
         custom)
             local shell="${SHELL:-/bin/bash}"
             [[ -x "$shell" ]] || shell=/bin/bash
-            show_cursor
-            drain_pending_input 0.1
             clear
             printf '%s%s%s\n%s$ %s%s\n\n' "$BLUE" "${MOREMOLE_MENU_LABELS[index]}" "$NC" "$GRAY" "$args" "$NC"
-            run_mole_command "$shell" -c "$args"
+            moremole_run_and_return "$shell" -c "$args"
             ;;
         edit)
             moremole_edit_my_commands
