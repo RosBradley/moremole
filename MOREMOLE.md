@@ -7,6 +7,7 @@ moremole is a personal fork of [Mole](https://github.com/tw93/Mole) by tw93, mod
 - **You can add your own commands to the menu,** and edit or remove them, right in the menu. They get a section of their own.
 - **Commands return to the menu** when they finish.
 - **Status fills the window:** its bars stretch with the window, it lists every CPU core, and it has a GPU card.
+- **Software updates** finds updates for Homebrew apps and tools, App Store apps and macOS, and installs the ones you pick.
 - **Update brings in Mole's latest changes and keeps moremole's.** Mole's own update would install the official release over this folder and erase them.
 
 The moremole changes live in their own files, so Mole's updates merge cleanly:
@@ -15,9 +16,11 @@ The moremole changes live in their own files, so Mole's updates merge cleanly:
 |---|---|
 | `lib/moremole/menu.sh` | The menu, your commands, and Update |
 | `cmd/status/moremole.go` | Status: stretching bars and the GPU card |
+| `bin/moremole-updates.sh`, `cmd/moremole-updates/` | Software updates: the screen, and the Go helper that finds updates |
+| `lib/moremole/commands.sh` | Adds `updates` to help and Tab completion |
 | `scripts/moremole-sync.sh` | Brings in Mole's latest changes |
-| `tests/moremole_menu.bats`, `cmd/status/moremole_test.go` | Tests for the above |
-| `mole`, `cmd/status/*.go` | A few marked lines (`moremole`) that hook the above in |
+| `tests/moremole_*.bats`, `cmd/status/moremole_test.go`, `cmd/moremole-updates/*_test.go` | Tests for the above |
+| `mole`, `Makefile`, `lib/core/commands.sh`, `cmd/status/*.go` | A few marked lines (`moremole`) that hook the above in |
 
 ## Running it
 
@@ -34,7 +37,7 @@ The installer:
 
 - links `moremole` and `mm` in `~/.local/bin` to this folder, so updates take effect straight away, and adds `~/.local/bin` to `PATH` in `~/.zshrc` if it isn't there;
 - replaces an older `alias mm=` line in `~/.zshrc`;
-- builds Analyze and Status, which are written in Go, if they were never built (install Go first with `brew install go`); after that, the update rebuilds them whenever they change;
+- builds Analyze, Status and Software updates, which are written in Go, if they were never built (install Go first with `brew install go`); after that, the update rebuilds them whenever they change;
 - offers Tab completion for `moremole` and `mm`, asking before it changes `~/.zshrc` (later: `moremole completion`);
 - offers to remove the official Mole if Homebrew installed it, with `brew uninstall mole`, which keeps `~/.config/mole`. Don't use Mole's own `mo remove` for this: it also moves `~/.config/mole`, including your MoreMole commands, to the Trash.
 
@@ -54,6 +57,7 @@ It's safe to run again. To undo it, delete `~/.local/bin/moremole` and `~/.local
   Slim Intel code        Preview
   Touch ID               Preview
   Shell completion       Preview
+  Software updates       Preview
   Update MoreMole
   ── My commands ──
   + Add a command
@@ -91,6 +95,30 @@ They're saved in `~/.config/mole/my_commands`, one per line as name, a Tab, then
 
 If you pull changes with `git pull`, the next update rebuilds Analyze and Status if needed, or run `make build` yourself.
 
+## Software updates
+
+Choose **Software updates** in the menu, or run `moremole updates`. **Preview** (`moremole updates --dry-run`) only lists what's available.
+
+It checks four places, then shows one list you pick from with the arrow keys and Space (A selects all), Enter to continue:
+
+| Source | Starts selected | Installs with |
+|---|---|---|
+| Homebrew apps | yes | `brew upgrade --cask --greedy` |
+| Homebrew apps that update themselves | no, marked "updates itself" | `brew upgrade --cask --greedy` |
+| Move to Homebrew: apps you installed yourself that Homebrew has a newer version of | no | `brew install --cask --force`, which replaces your copy; settings stay |
+| App Store apps | yes | `mas upgrade`, which may ask for your password |
+| Command-line tools (Homebrew formulae) | no | `brew upgrade --formula` |
+| macOS updates | no | `softwareupdate --install`, after your password |
+| macOS updates that restart the Mac | no | opens Software Update in System Settings |
+
+- A confirm screen lists your picks and warns about what they do (apps quit, your copy is replaced, a password is needed). Enter installs; any other key cancels.
+- Each update runs with its own output on screen, then a summary says what updated and what didn't, and why. Each one is recorded in History.
+- Checking can take a minute: Homebrew refreshes its version list first, and macOS is slowest to answer.
+- No Homebrew: Homebrew apps and tools are skipped, with a note. No `mas` (the App Store tool): it offers to install it with Homebrew.
+- Pinned formulae (`brew pin`) are left out. Apps that report no version number (`latest`) start unselected, since they always reinstall.
+- An app joins "Move to Homebrew" only when exactly one Homebrew app matches its name, that app doesn't update itself, and its version is clearly newer. App Store and Apple apps never do.
+- Software updates is a moremole addition. Mole leaves package management out on purpose, so this part won't be offered to Mole.
+
 ## Getting Mole's updates
 
 Choose **Update MoreMole** in the menu, press U when an update notice shows, or run:
@@ -99,4 +127,4 @@ Choose **Update MoreMole** in the menu, press U when an update notice shows, or 
 bash scripts/moremole-sync.sh
 ```
 
-It first brings down any moremole changes already on GitHub, then copies Mole's latest changes into `main`, merges them into the `moremole` branch, and pushes both to GitHub. When Analyze or Status is older than its code, including after a `git pull`, it rebuilds them (`make build`). It stops and says what to do if you have uncommitted changes, are on another branch, or if Mole changed the same lines as moremole.
+It first brings down any moremole changes already on GitHub, then copies Mole's latest changes into `main`, merges them into the `moremole` branch, and pushes both to GitHub. When Analyze, Status or Software updates is older than its code, including after a `git pull`, it rebuilds them (`make build`). It stops and says what to do if you have uncommitted changes, are on another branch, or if Mole changed the same lines as moremole.
