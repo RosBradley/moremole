@@ -568,6 +568,30 @@ show_brand_banner() {
     printf '\n'
 }
 
+# Mole's own version screen, kept so its system details stay current.
+if declare -F show_version > /dev/null; then
+    eval "$(declare -f show_version | sed '1s/^show_version /_moremole_official_show_version /')"
+fi
+
+# The version screen names MoreMole, credits Mole and its author, and says
+# which moremole commit is running. The version line keeps the form
+# "... Mole version X.Y.Z" that Mole's own scripts read the number from.
+show_version() {
+    local commit="" line
+    if _moremole_is_git_folder; then
+        commit="$(git -C "$SCRIPT_DIR" log -1 --format='%h, %cd' --date=short 2> /dev/null)" || commit=""
+    fi
+    _moremole_official_show_version "$@" | while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == "Mole version "* ]]; then
+            printf 'MoreMole version %s\n' "${line#Mole version }" 2> /dev/null || return 0
+            printf 'Based on Mole by tw93: github.com/tw93/Mole\n' 2> /dev/null || return 0
+            printf 'MoreMole: %s%s\n' "$MOREMOLE_REPO_URL" "${commit:+ ($commit)}" 2> /dev/null || return 0
+        else
+            printf '%s\n' "$line" 2> /dev/null || return 0
+        fi
+    done
+}
+
 # Mole's own updater, kept for copies that are not the moremole git folder.
 if declare -F update_mole > /dev/null; then
     eval "$(declare -f update_mole | sed '1s/^update_mole /_moremole_official_update_mole /')"

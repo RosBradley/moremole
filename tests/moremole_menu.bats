@@ -249,6 +249,18 @@ show_brand_banner
 	[[ "$narrow" == *$'\ngithub.com/RosBradley/moremole\nDeep clean and optimize your Mac.'* ]]
 }
 
+@test "the version screen names MoreMole and credits Mole" {
+	run env HOME="$HOME" "$PROJECT_ROOT/mole" --version
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	local expected
+	expected="$(sed -n 's/^VERSION="\(.*\)"$/\1/p' "$PROJECT_ROOT/mole")"
+	[[ "$output" == *"MoreMole version $expected"* ]] || return 1
+	[[ "$output" == *"Based on Mole by tw93: github.com/tw93/Mole"* ]] || return 1
+	[[ "$output" == *"MoreMole: github.com/RosBradley/moremole"* ]] || return 1
+	# Mole's own scripts read the number from the "Mole version" line.
+	[ "$(printf '%s\n' "$output" | awk '/Mole version/ {print $NF; exit}')" = "$expected" ]
+}
+
 @test "update_mole runs the moremole sync script instead of installing Mole" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 SCRIPT_DIR="$HOME/fork"
