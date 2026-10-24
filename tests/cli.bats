@@ -364,7 +364,7 @@ EOF
 	[[ "$output" == *"Purge"*"Preview"*"Choose folders"* ]] || return 1
 	[[ "$output" == *"Shell completion"*"Preview"* ]] || return 1
 	[[ "$output" == *"Update from Mole"* ]] || return 1
-	[[ "$output" == *"Edit my commands..."* ]]
+	[[ "$output" == *"+ Add a command"* ]]
 }
 
 @test "show_main_menu sets the update notice off with a blank line and a green command" {

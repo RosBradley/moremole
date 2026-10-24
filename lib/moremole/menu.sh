@@ -1,7 +1,8 @@
 #!/bin/bash
 # moremole: the main menu lists every command from the More screen, one row
 # per command with its preview and other variants beside it, then the user's
-# own commands in a section of their own. Commands return to the menu.
+# own commands in a section of their own, each with Edit and Remove beside
+# it. Commands return to the menu.
 # Sourced by the mole router after lib/manage/update.sh. Everything moremole
 # changes lives here so upstream Mole updates merge with few conflicts.
 
@@ -32,8 +33,8 @@ readonly MOREMOLE_BUILTIN_ROWS=(
     "Update from Mole|update||Bring in Mole's latest changes and keep moremole's"
 )
 readonly MOREMOLE_SECTION_LABEL="My commands"
-readonly MOREMOLE_EDIT_LABEL="Edit my commands..."
-readonly MOREMOLE_EDIT_DESC="Add or remove your own commands"
+readonly MOREMOLE_ADD_LABEL="+ Add a command"
+readonly MOREMOLE_ADD_DESC="Add your own command to this menu"
 readonly MOREMOLE_MENU_COLUMNS=3
 
 # Lines show_main_menu prints around the items: a blank line, the five-line
@@ -56,6 +57,10 @@ declare -a MOREMOLE_MY_COMMANDS=()
 # File line number of each of the user's commands.
 declare -a MOREMOLE_MY_LINES=()
 MOREMOLE_MENU_TOP_ROW=0
+# Item the menu should select after moremole_menu_activate (1-based), and a
+# one-time message shown in place of the description.
+MOREMOLE_MENU_SELECTED=1
+MOREMOLE_MENU_NOTICE=""
 
 # Layout, set by _moremole_menu_layout.
 declare -a MOREMOLE_LAYOUT_WIDTHS=()
@@ -126,13 +131,17 @@ moremole_load_menu_items() {
         done
     done
 
-    # The user's section: a heading, the editor, then one command per row.
+    # The user's section: a heading, Add, then one row per command with its
+    # Edit and Remove actions beside it. Their args hold the command's number.
     _moremole_add_item "$MOREMOLE_SECTION_LABEL" "header" "" "" 0
-    _moremole_add_item "$MOREMOLE_EDIT_LABEL" "edit" "" "$MOREMOLE_EDIT_DESC" 0
+    _moremole_add_item "$MOREMOLE_ADD_LABEL" "add" "" "$MOREMOLE_ADD_DESC" 0
     moremole_read_my_commands
-    local i
+    local i name
     for ((i = 0; i < ${#MOREMOLE_MY_NAMES[@]}; i++)); do
-        _moremole_add_item "${MOREMOLE_MY_NAMES[i]}" "custom" "${MOREMOLE_MY_COMMANDS[i]}" "Runs: ${MOREMOLE_MY_COMMANDS[i]}" 0
+        name="${MOREMOLE_MY_NAMES[i]}"
+        _moremole_add_item "$name" "custom" "${MOREMOLE_MY_COMMANDS[i]}" "Runs: ${MOREMOLE_MY_COMMANDS[i]}" 0
+        _moremole_add_item "Edit" "edit" "$i" "Change the name or command of \"$name\"" 1
+        _moremole_add_item "Remove" "remove" "$i" "Remove \"$name\" from the menu" 2
     done
 }
 
@@ -230,7 +239,7 @@ moremole_show_menu_items() {
                 line+="  ${BLUE}── ${label} ──${NC}"
             elif ((index + 1 == selected)); then
                 line+="${CYAN}${ICON_ARROW} ${label}${NC}"
-            elif [[ "$kind" == "edit" ]]; then
+            elif [[ "$kind" == "add" ]]; then
                 line+="  ${GREEN}${label}${NC}"
             else
                 line+="  ${label}"
@@ -256,13 +265,18 @@ moremole_show_menu_items() {
         printf '\r\033[2K  %s%s%s\n' "$GRAY" "$hint" "$NC"
     fi
 
-    # One line only: a description wider than the window is shortened.
-    local desc="${MOREMOLE_MENU_DESCS[selected - 1]:-}"
+    # One line only: a description wider than the window is shortened. A
+    # notice from the last action shows once in its place.
+    local desc="${MOREMOLE_MENU_DESCS[selected - 1]:-}" desc_color="$GRAY"
+    if [[ -n "$MOREMOLE_MENU_NOTICE" ]]; then
+        desc="$MOREMOLE_MENU_NOTICE" desc_color="$GREEN"
+        MOREMOLE_MENU_NOTICE=""
+    fi
     local room=$((MOREMOLE_LAYOUT_TERM_COLS - 4))
     if ((room > 3 && ${#desc} > room)); then
         desc="${desc:0:$((room - 3))}..."
     fi
-    printf '\r\033[2K\n\r\033[2K  %s%s%s\n' "$GRAY" "$desc" "$NC"
+    printf '\r\033[2K\n\r\033[2K  %s%s%s\n' "$desc_color" "$desc" "$NC"
 }
 
 # Print the item number (1-based) reached from $1 by key $2. Up and down keep
@@ -328,12 +342,14 @@ moremole_run_and_return() {
     clear
 }
 
-# Run item $1 (1-based). Commands and the editor return to the menu; Update
-# ends it, because the files it runs from may have just changed.
+# Run item $1 (1-based) and set MOREMOLE_MENU_SELECTED to the item to select
+# next. Commands, Add, Edit and Remove return to the menu; Update ends it,
+# because the files it runs from may have just changed.
 moremole_menu_activate() {
     local index=$(($1 - 1))
     local kind="${MOREMOLE_MENU_KINDS[index]:-}"
     local args="${MOREMOLE_MENU_ARGS[index]:-}"
+    MOREMOLE_MENU_SELECTED=$1
 
     case "$kind" in
         mole)
@@ -359,11 +375,35 @@ moremole_menu_activate() {
             printf '%s%s%s\n%s$ %s%s\n\n' "$BLUE" "${MOREMOLE_MENU_LABELS[index]}" "$NC" "$GRAY" "$args" "$NC"
             moremole_run_and_return "$shell" -c "$args"
             ;;
-        edit)
-            moremole_edit_my_commands
+        add | edit | remove)
+            show_cursor
+            drain_pending_input 0.1
+            clear
+            "_moremole_${kind}_my_command" "$args"
+            hide_cursor
+            clear
             moremole_load_menu_items
             ;;
     esac
+}
+
+# Item number (1-based) of the user's command $1 (0-based), or of Add when
+# there is no such command.
+_moremole_my_command_item() {
+    local i add_item=1
+    for ((i = 0; i < ${#MOREMOLE_MENU_KINDS[@]}; i++)); do
+        case "${MOREMOLE_MENU_KINDS[i]}" in
+            add) add_item=$((i + 1)) ;;
+            edit)
+                if [[ "${MOREMOLE_MENU_ARGS[i]}" == "$1" ]]; then
+                    # The command's own item sits just before its Edit.
+                    printf '%s\n' "$i"
+                    return 0
+                fi
+                ;;
+        esac
+    done
+    printf '%s\n' "$add_item"
 }
 
 _moremole_trim() {
@@ -388,14 +428,17 @@ _moremole_append_my_command() {
     printf '%s\t%s\n' "$1" "$2" >> "$file"
 }
 
-# Remove line $1 of the file and keep every other line as it is.
-_moremole_delete_file_line() {
-    local target="$1" line number=0
+# Replace line $1 of the file with $2, or remove it when $2 is empty, and keep
+# every other line as it is.
+_moremole_replace_file_line() {
+    local target="$1" replacement="$2" line number=0
     local -a kept=()
     while IFS= read -r line || [[ -n "$line" ]]; do
         number=$((number + 1))
         if ((number != target)); then
             kept+=("$line")
+        elif [[ -n "$replacement" ]]; then
+            kept+=("$replacement")
         fi
     done < "$MOREMOLE_MY_COMMANDS_FILE"
     if ((${#kept[@]} > 0)); then
@@ -405,95 +448,78 @@ _moremole_delete_file_line() {
     fi
 }
 
+# Ask for one line of input and print the answer; $2, when given, is shown in
+# brackets and kept when the answer is empty. Returns 1 at end of input.
+_moremole_ask() {
+    local prompt="$1" current="${2:-}" answer=""
+    if [[ -n "$current" ]]; then
+        printf '%s [%s]: ' "$prompt" "$current" >&2
+    else
+        printf '%s: ' "$prompt" >&2
+    fi
+    IFS= read -r answer || return 1
+    answer="$(_moremole_trim "$answer")"
+    printf '%s' "${answer:-$current}"
+}
+
 _moremole_add_my_command() {
     local name="" command=""
-    printf '\nName shown in the menu: '
-    IFS= read -r name || return 0
-    name="$(_moremole_trim "${name//$'\t'/ }")"
+    printf '%sAdd a command%s\n%sLeave the name empty to cancel.%s\n\n' "$BLUE" "$NC" "$GRAY" "$NC"
+    name="$(_moremole_ask "Name shown in the menu")" || return 0
+    name="${name//$'\t'/ }"
     if [[ -z "$name" ]]; then
-        MOREMOLE_EDIT_MESSAGE="Nothing added: the name was empty."
+        MOREMOLE_MENU_NOTICE="Nothing added."
         return 0
     fi
-    printf 'Command to run: '
-    IFS= read -r command || return 0
-    command="$(_moremole_trim "$command")"
+    command="$(_moremole_ask "Command to run")" || return 0
     if [[ -z "$command" ]]; then
-        MOREMOLE_EDIT_MESSAGE="Nothing added: the command was empty."
+        MOREMOLE_MENU_NOTICE="Nothing added: the command was empty."
         return 0
     fi
 
     _moremole_append_my_command "$name" "$command"
-    MOREMOLE_EDIT_MESSAGE="Added \"$name\" to the menu."
+    moremole_load_menu_items
+    MOREMOLE_MENU_SELECTED=$(_moremole_my_command_item "$((${#MOREMOLE_MY_NAMES[@]} - 1))")
+    MOREMOLE_MENU_NOTICE="Added \"$name\"."
+}
+
+_moremole_edit_my_command() {
+    local number="$1"
+    local old_name="${MOREMOLE_MY_NAMES[number]}" old_command="${MOREMOLE_MY_COMMANDS[number]}"
+    local name="" command=""
+    printf '%sEdit "%s"%s\n%sPress Enter to keep what is in brackets.%s\n\n' "$BLUE" "$old_name" "$NC" "$GRAY" "$NC"
+    name="$(_moremole_ask "Name shown in the menu" "$old_name")" || return 0
+    name="${name//$'\t'/ }"
+    command="$(_moremole_ask "Command to run" "$old_command")" || return 0
+    if [[ "$name" == "$old_name" && "$command" == "$old_command" ]]; then
+        MOREMOLE_MENU_NOTICE="Nothing changed."
+        return 0
+    fi
+
+    _moremole_replace_file_line "${MOREMOLE_MY_LINES[number]}" "$name"$'\t'"$command"
+    moremole_load_menu_items
+    MOREMOLE_MENU_SELECTED=$(_moremole_my_command_item "$number")
+    MOREMOLE_MENU_NOTICE="Saved \"$name\"."
 }
 
 _moremole_remove_my_command() {
-    local count=${#MOREMOLE_MY_NAMES[@]}
-    if ((count == 0)); then
-        MOREMOLE_EDIT_MESSAGE="There are no commands to remove."
-        return 0
-    fi
-
-    local choice="" answer=""
-    printf '\nNumber to remove (Enter to cancel): '
-    IFS= read -r choice || return 0
-    choice="$(_moremole_trim "$choice")"
-    [[ -n "$choice" ]] || return 0
-    if [[ ! "$choice" =~ ^[0-9]{1,6}$ ]]; then
-        MOREMOLE_EDIT_MESSAGE="There is no command number $choice."
-        return 0
-    fi
-    # Base 10 explicitly: arithmetic would read "08" as invalid octal.
-    choice=$((10#$choice))
-    if ((choice < 1 || choice > count)); then
-        MOREMOLE_EDIT_MESSAGE="There is no command number $choice."
-        return 0
-    fi
-
-    local name="${MOREMOLE_MY_NAMES[choice - 1]}"
-    printf 'Remove "%s"? (y/N): ' "$name"
+    local number="$1" answer=""
+    local name="${MOREMOLE_MY_NAMES[number]}"
+    printf 'Remove "%s" from the menu? (y/N): ' "$name"
     IFS= read -r answer || return 0
     if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
-        MOREMOLE_EDIT_MESSAGE="Nothing removed."
+        MOREMOLE_MENU_NOTICE="Nothing removed."
         return 0
     fi
 
-    _moremole_delete_file_line "${MOREMOLE_MY_LINES[choice - 1]}"
-    MOREMOLE_EDIT_MESSAGE="Removed \"$name\"."
-}
-
-# Plain line-based screen for adding and removing the user's commands.
-moremole_edit_my_commands() {
-    local choice="" i
-    MOREMOLE_EDIT_MESSAGE=""
-    show_cursor
-    drain_pending_input 0.1
-
-    while true; do
-        moremole_read_my_commands
-        clear
-        printf '%sMy commands%s\n\n' "$BLUE" "$NC"
-        if ((${#MOREMOLE_MY_NAMES[@]} == 0)); then
-            printf '  %sNone yet.%s\n' "$GRAY" "$NC"
-        fi
-        for ((i = 0; i < ${#MOREMOLE_MY_NAMES[@]}; i++)); do
-            printf '  %d. %s  %s%s%s\n' "$((i + 1))" "${MOREMOLE_MY_NAMES[i]}" "$GRAY" "${MOREMOLE_MY_COMMANDS[i]}" "$NC"
-        done
-        if [[ -n "$MOREMOLE_EDIT_MESSAGE" ]]; then
-            printf '\n%s%s%s\n' "$GREEN" "$MOREMOLE_EDIT_MESSAGE" "$NC"
-            MOREMOLE_EDIT_MESSAGE=""
-        fi
-        printf '\n  A  Add a command\n  R  Remove a command\n  Enter  Back to the menu\n\nChoice: '
-        IFS= read -r choice || break
-        case "$(_moremole_trim "$choice")" in
-            a | A) _moremole_add_my_command ;;
-            r | R) _moremole_remove_my_command ;;
-            "") break ;;
-            *) MOREMOLE_EDIT_MESSAGE="Type A, R, or just press Enter." ;;
-        esac
-    done
-
-    clear
-    hide_cursor
+    _moremole_replace_file_line "${MOREMOLE_MY_LINES[number]}" ""
+    moremole_load_menu_items
+    # Select the command that took its place, else the one above, else Add.
+    if ((number >= ${#MOREMOLE_MY_NAMES[@]})); then
+        number=$((number - 1))
+    fi
+    MOREMOLE_MENU_SELECTED=$(_moremole_my_command_item "$number")
+    MOREMOLE_MENU_NOTICE="Removed \"$name\"."
 }
 
 # Mole's own updater, kept for copies that are not the moremole git folder.

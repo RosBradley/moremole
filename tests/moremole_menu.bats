@@ -35,8 +35,8 @@ moremole_show_menu_items 1
 printf "count=%s\n" "${#MOREMOLE_MY_NAMES[@]}"
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"Update from Mole"$'\n'*"── My commands ──"$'\n'*"Edit my commands..."$'\n'* ]] || return 1
-	[[ "$output" == *"Edit my commands..."$'\n'*"  Flush DNS"$'\n'*"  Say hi"$'\n'* ]] || return 1
+	[[ "$output" == *"Update from Mole"$'\n'*"── My commands ──"$'\n'*"+ Add a command"$'\n'* ]] || return 1
+	[[ "$output" == *"+ Add a command"$'\n'*"  Flush DNS"*"Edit"*"Remove"$'\n'*"  Say hi"*"Edit"*"Remove"$'\n'* ]] || return 1
 	[[ "$output" == *"count=2"* ]] || return 1
 	[[ "$output" != *"no tab here"* ]]
 }
@@ -48,11 +48,13 @@ moremole_load_menu_items
 moremole_show_menu_items 2 | tail -n 1
 moremole_show_menu_items 27 | tail -n 1
 moremole_show_menu_items 28 | tail -n 1
+moremole_show_menu_items 30 | tail -n 1
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 	[[ "$output" == *"Show what Clean would remove, without removing anything"* ]] || return 1
-	[[ "$output" == *"Add or remove your own commands"* ]] || return 1
-	[[ "$output" == *"Runs: echo hi"* ]]
+	[[ "$output" == *"Add your own command to this menu"* ]] || return 1
+	[[ "$output" == *"Runs: echo hi"* ]] || return 1
+	[[ "$output" == *'Remove "Say hi" from the menu'* ]]
 }
 
 @test "arrow keys keep the column when the next row has one" {
@@ -66,7 +68,7 @@ done
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 	# Row 1 holds items 1-3, Uninstall 4-5, Optimize 6-8, Analyze 9-10;
-	# Update is 25, the section heading 26 is skipped, the editor is 27.
+	# Update is 25, the section heading 26 is skipped, Add is 27.
 	[ "$output" = "2 3 3 5 7 8 10 9 9 6 1 1 27 27 25 27 " ]
 }
 
@@ -89,67 +91,84 @@ printf "last:\n"; moremole_show_menu_items "$last"
 	[[ "$last" != *"Protected caches"* ]]
 }
 
-@test "the editor adds and removes commands in the commands file" {
-	run /bin/bash --noprofile --norc -c "$(prelude)"'
-clear() { :; }
-drain_pending_input() { :; }
-moremole_edit_my_commands < <(printf "a\n  Say hi \necho hi\na\nList\nls -la\n\n")
-cat "$MOREMOLE_MY_COMMANDS_FILE"
-echo "---"
-moremole_edit_my_commands < <(printf "r\n1\ny\nr\n9\n\n")
-cat "$MOREMOLE_MY_COMMANDS_FILE"
-'
-	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	local added="${output%%---*}" removed="${output#*---}"
-	[[ "$added" == *$'Say hi\techo hi\nList\tls -la'* ]] || return 1
-	[[ "$removed" == *$'\nList\tls -la'* ]] || return 1
-	[[ "$removed" == *"There is no command number 9."* ]] || return 1
-	[[ "$removed" != *$'Say hi\techo hi'* ]]
-}
+# Items in the my-commands section: Add is 27, then each command's row holds
+# the command, Edit and Remove (28-30 for the first, 31-33 for the second).
 
-@test "the editor keeps the file unchanged when a remove is not confirmed" {
-	printf 'Say hi\techo hi\n' > "$HOME/.config/mole/my_commands"
-	run /bin/bash --noprofile --norc -c "$(prelude)"'
-clear() { :; }
-drain_pending_input() { :; }
-moremole_edit_my_commands < <(printf "r\n1\nn\na\n\n\n")
-cat "$MOREMOLE_MY_COMMANDS_FILE"
-'
-	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"Nothing removed."* ]] || return 1
-	[[ "$output" == *"Nothing added: the name was empty."* ]] || return 1
-	[[ "$output" == *$'Say hi\techo hi'* ]]
-}
-
-@test "removing reads numbers as decimal and keeps hand-written lines" {
-	printf '# my notes\nOne\techo 1\nnot a command\nTwo\techo 2\n' > "$HOME/.config/mole/my_commands"
-	for i in 3 4 5 6 7 8; do
-		printf 'Cmd %s\techo %s\n' "$i" "$i" >> "$HOME/.config/mole/my_commands"
-	done
-	run /bin/bash --noprofile --norc -c "$(prelude)"'
-clear() { :; }
-drain_pending_input() { :; }
-moremole_edit_my_commands < <(printf "r\n08\ny\nr\n010\nr\n02\ny\n\n")
-echo "---"
-cat "$MOREMOLE_MY_COMMANDS_FILE"
-'
-	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"There is no command number 10."* ]] || return 1
-	local file="${output#*---}"
-	[ "$file" = $'\n# my notes\nOne\techo 1\nnot a command\nCmd 3\techo 3\nCmd 4\techo 4\nCmd 5\techo 5\nCmd 6\techo 6\nCmd 7\techo 7' ]
-}
-
-@test "adding keeps existing lines and starts a new line when the file lacks one" {
+@test "Add appends a command, selects it and confirms" {
 	printf '# my notes\nOne\techo 1' > "$HOME/.config/mole/my_commands"
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 clear() { :; }
 drain_pending_input() { :; }
-moremole_edit_my_commands < <(printf "a\nTwo\necho 2\n\n")
+moremole_load_menu_items
+moremole_menu_activate 27 < <(printf "  Say hi \necho hi\n")
+echo "selected=$MOREMOLE_MENU_SELECTED"
+moremole_show_menu_items "$MOREMOLE_MENU_SELECTED" | tail -n 1
 echo "---"
 cat "$MOREMOLE_MY_COMMANDS_FILE"
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[ "${output#*---}" = $'\n# my notes\nOne\techo 1\nTwo\techo 2' ]
+	[[ "$output" == *"selected=31"* ]] || return 1
+	[[ "$output" == *'Added "Say hi".'* ]] || return 1
+	[ "${output#*---}" = $'\n# my notes\nOne\techo 1\nSay hi\techo hi' ]
+}
+
+@test "Add with an empty name or command adds nothing" {
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+clear() { :; }
+drain_pending_input() { :; }
+moremole_load_menu_items
+moremole_menu_activate 27 < <(printf "\n")
+moremole_show_menu_items 27 | tail -n 1
+moremole_menu_activate 27 < <(printf "Name\n\n")
+moremole_show_menu_items 27 | tail -n 1
+[[ ! -e "$MOREMOLE_MY_COMMANDS_FILE" ]] && echo "NO_FILE"
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"Nothing added."* ]] || return 1
+	[[ "$output" == *"Nothing added: the command was empty."* ]] || return 1
+	[[ "$output" == *"NO_FILE"* ]]
+}
+
+@test "Edit changes one line, keeps the rest and Enter keeps a value" {
+	printf '# my notes\nOne\techo 1\nnot a command\nTwo\techo 2\n' > "$HOME/.config/mole/my_commands"
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+clear() { :; }
+drain_pending_input() { :; }
+moremole_load_menu_items
+moremole_menu_activate 32 < <(printf "\necho two\n")
+echo "selected=$MOREMOLE_MENU_SELECTED"
+moremole_menu_activate 29 < <(printf "\n\n")
+moremole_show_menu_items 28 | tail -n 1
+echo "---"
+cat "$MOREMOLE_MY_COMMANDS_FILE"
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"selected=31"* ]] || return 1
+	[[ "$output" == *"Nothing changed."* ]] || return 1
+	[ "${output#*---}" = $'\n# my notes\nOne\techo 1\nnot a command\nTwo\techo two' ]
+}
+
+@test "Remove asks first, keeps hand-written lines and moves the selection" {
+	printf '# my notes\nOne\techo 1\nnot a command\nTwo\techo 2\n' > "$HOME/.config/mole/my_commands"
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+clear() { :; }
+drain_pending_input() { :; }
+moremole_load_menu_items
+moremole_menu_activate 30 < <(printf "n\n")
+moremole_show_menu_items 30 | tail -n 1
+moremole_menu_activate 30 < <(printf "y\n")
+echo "selected=$MOREMOLE_MENU_SELECTED"
+moremole_menu_activate 30 < <(printf "Y\n")
+echo "selected=$MOREMOLE_MENU_SELECTED"
+echo "---"
+cat "$MOREMOLE_MY_COMMANDS_FILE"
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"Nothing removed."* ]] || return 1
+	# Removing the first command selects the one that took its place; removing
+	# the last selects Add.
+	[[ "$output" == *"selected=28"*"selected=27"* ]] || return 1
+	[ "${output#*---}" = $'\n# my notes\nnot a command' ]
 }
 
 @test "menu items launch the right Mole script, preview flags and own commands" {

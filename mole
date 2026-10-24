@@ -259,7 +259,10 @@ interactive_main_menu() {
             "UP" | "DOWN" | "LEFT" | "RIGHT" | "TOP" | "BOTTOM")
                 current_option=$(moremole_menu_move "$current_option" "$key")
                 ;;
-            "ENTER") moremole_menu_activate "$current_option" ;;
+            "ENTER")
+                moremole_menu_activate "$current_option"
+                current_option="$MOREMOLE_MENU_SELECTED"
+                ;;
             "CHAR:1")
                 launch_menu_command "$SCRIPT_DIR/bin/clean.sh"
                 ;;
