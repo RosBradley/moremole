@@ -93,4 +93,4 @@ Choose **Update from Mole** in the menu, press U when an update notice shows, or
 bash scripts/moremole-sync.sh
 ```
 
-It copies Mole's latest changes into `main`, merges them into the `moremole` branch, and pushes both to GitHub. It stops and says what to do if you have uncommitted changes, are on another branch, or if Mole changed the same lines as moremole.
+It first brings down any moremole changes already on GitHub, then copies Mole's latest changes into `main`, merges them into the `moremole` branch, and pushes both to GitHub. It stops and says what to do if you have uncommitted changes, are on another branch, or if Mole changed the same lines as moremole.
