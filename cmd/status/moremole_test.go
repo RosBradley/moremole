@@ -1,8 +1,10 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -132,10 +134,78 @@ func TestParseIORegGPUUtilization(t *testing.T) {
 	if got := parseIORegGPUUtilization(out); got != 23 {
 		t.Errorf("got %v, want 23", got)
 	}
-	if got := parseIORegGPUUtilization(`"Renderer Utilization %"=21`); got != -1 {
-		t.Errorf("missing key: got %v, want -1", got)
+	if got := parseIORegGPUUtilization(`"Tiler Utilization %"=21`); got != -1 {
+		t.Errorf("neither key: got %v, want -1", got)
 	}
 	if got := parseIORegGPUUtilization(`"Device Utilization %"=140`); got != 100 {
 		t.Errorf("out of range: got %v, want 100", got)
 	}
+}
+
+func TestParseIORegGPUUtilizationTakesTheBusiestAccelerator(t *testing.T) {
+	out := `{"PerformanceStatistics" = {"Device Utilization %"=0}}
+{"PerformanceStatistics" = {"Device Utilization %"=87,"Renderer Utilization %"=80}}`
+	if got := parseIORegGPUUtilization(out); got != 87 {
+		t.Errorf("got %v, want 87 from the busy accelerator", got)
+	}
+	if got := parseIORegGPUUtilization(`"Renderer Utilization %"=42`); got != 42 {
+		t.Errorf("renderer only: got %v, want 42", got)
+	}
+}
+
+func resetLiveGPU(t *testing.T, reader func() float64) {
+	t.Helper()
+	savedReader := readLiveGPUUsage
+	readLiveGPUUsage = reader
+	liveGPU.at, liveGPU.usage = time.Time{}, 0
+	t.Cleanup(func() {
+		readLiveGPUUsage = savedReader
+		liveGPU.at, liveGPU.usage = time.Time{}, 0
+	})
+}
+
+func TestRefreshLiveGPUUsageUpdatesEveryRefresh(t *testing.T) {
+	withGPUCardPlatform(t, "darwin")
+	reads := 0
+	readings := []float64{12, 95, -1}
+	resetLiveGPU(t, func() float64 {
+		value := readings[min(reads, len(readings)-1)]
+		reads++
+		return value
+	})
+
+	start := time.Now()
+	full := []GPUStatus{{Name: "Apple M4 Max", Usage: 3, CoreCount: 40}}
+	snapshot := MetricsSnapshot{GPU: full}
+	refreshLiveGPUUsage(&snapshot, start)
+	if snapshot.GPU[0].Usage != 12 || full[0].Usage != 3 {
+		t.Fatalf("first refresh: usage %v (full refresh's copy %v), want 12 and untouched 3", snapshot.GPU[0].Usage, full[0].Usage)
+	}
+
+	// Within the TTL the cached reading is reused, then a new one is taken.
+	snapshot = MetricsSnapshot{GPU: slices.Clone(full)}
+	refreshLiveGPUUsage(&snapshot, start.Add(100*time.Millisecond))
+	if reads != 1 || snapshot.GPU[0].Usage != 12 {
+		t.Fatalf("within TTL: reads=%d usage=%v, want 1 and 12", reads, snapshot.GPU[0].Usage)
+	}
+	snapshot = MetricsSnapshot{GPU: slices.Clone(full)}
+	refreshLiveGPUUsage(&snapshot, start.Add(time.Second))
+	if snapshot.GPU[0].Usage != 95 {
+		t.Fatalf("next second: usage %v, want 95", snapshot.GPU[0].Usage)
+	}
+
+	// No answer from ioreg keeps the full refresh's value.
+	snapshot = MetricsSnapshot{GPU: slices.Clone(full)}
+	refreshLiveGPUUsage(&snapshot, start.Add(2*time.Second))
+	if snapshot.GPU[0].Usage != 3 {
+		t.Fatalf("no reading: usage %v, want the full refresh's 3", snapshot.GPU[0].Usage)
+	}
+}
+
+func TestRefreshLiveGPUUsageSkipsWithoutAGPUOrOffMacOS(t *testing.T) {
+	resetLiveGPU(t, func() float64 { t.Fatal("read GPU use"); return -1 })
+	withGPUCardPlatform(t, "darwin")
+	refreshLiveGPUUsage(&MetricsSnapshot{}, time.Now())
+	withGPUCardPlatform(t, "linux")
+	refreshLiveGPUUsage(&MetricsSnapshot{GPU: []GPUStatus{{Usage: 1}}}, time.Now())
 }

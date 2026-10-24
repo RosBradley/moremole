@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,6 +26,8 @@ const (
 	// Disk lines end with "  1.8T used, 677G free".
 	diskValueRoom   = 24
 	ioregGPUTimeout = 1 * time.Second
+	// GPU use is read about as often as the per-second refresh runs.
+	liveGPUUsageTTL = 900 * time.Millisecond
 )
 
 // gpuCardPlatform is the platform the GPU card is shown on; tests replace it.
@@ -96,20 +100,57 @@ func renderGPUCard(gpus []GPUStatus) (cardData, bool) {
 	return cardData{icon: iconGPU, title: "GPU", lines: lines}, true
 }
 
-var gpuDeviceUtilizationRe = regexp.MustCompile(`"Device Utilization %"\s*=\s*(\d+(?:\.\d+)?)`)
+var (
+	gpuDeviceUtilizationRe   = regexp.MustCompile(`"Device Utilization %"\s*=\s*(\d+(?:\.\d+)?)`)
+	gpuRendererUtilizationRe = regexp.MustCompile(`"Renderer Utilization %"\s*=\s*(\d+(?:\.\d+)?)`)
+)
 
-// parseIORegGPUUtilization reads the GPU's "Device Utilization %" from ioreg
-// output, or -1 when it is missing.
+// parseIORegGPUUtilization reads GPU use from ioreg output: the highest
+// "Device Utilization %" of any accelerator listed, since an idle one may come
+// first, else the highest "Renderer Utilization %". -1 when neither is there.
 func parseIORegGPUUtilization(out string) float64 {
-	matches := gpuDeviceUtilizationRe.FindStringSubmatch(out)
-	if len(matches) < 2 {
-		return -1
+	for _, re := range []*regexp.Regexp{gpuDeviceUtilizationRe, gpuRendererUtilizationRe} {
+		usage := -1.0
+		for _, matches := range re.FindAllStringSubmatch(out, -1) {
+			if value, err := strconv.ParseFloat(matches[1], 64); err == nil {
+				usage = max(usage, value)
+			}
+		}
+		if usage >= 0 {
+			return min(usage, 100)
+		}
 	}
-	usage, err := strconv.ParseFloat(matches[1], 64)
-	if err != nil {
-		return -1
+	return -1
+}
+
+// readLiveGPUUsage reads GPU use for the per-second refresh; tests replace it.
+var readLiveGPUUsage = readIORegGPUUtilization
+
+var liveGPU struct {
+	sync.Mutex
+	at    time.Time
+	usage float64
+}
+
+// refreshLiveGPUUsage puts current GPU use into a snapshot from the
+// per-second refresh. Without it GPU use came only from the full refresh,
+// every 30 seconds, so a burst of GPU work between two of those never showed.
+// Keeps the full refresh's value when ioreg has no answer.
+func refreshLiveGPUUsage(snapshot *MetricsSnapshot, now time.Time) {
+	if gpuCardPlatform != "darwin" || snapshot == nil || len(snapshot.GPU) == 0 {
+		return
 	}
-	return min(max(usage, 0), 100)
+	liveGPU.Lock()
+	if liveGPU.at.IsZero() || now.Sub(liveGPU.at) >= liveGPUUsageTTL {
+		liveGPU.usage = readLiveGPUUsage()
+		liveGPU.at = now
+	}
+	usage := liveGPU.usage
+	liveGPU.Unlock()
+	if usage >= 0 {
+		snapshot.GPU = slices.Clone(snapshot.GPU)
+		snapshot.GPU[0].Usage = usage
+	}
 }
 
 // readIORegGPUUtilization asks the GPU driver for its utilization. Unlike
