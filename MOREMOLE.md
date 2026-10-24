@@ -54,7 +54,7 @@ It's safe to run again. To undo it, delete `~/.local/bin/moremole` and `~/.local
   Slim Intel code        Preview
   Touch ID               Preview
   Shell completion       Preview
-  Update from Mole
+  Update MoreMole
   ── My commands ──
   + Add a command
   Flush DNS              Edit               Remove
@@ -66,7 +66,7 @@ It's safe to run again. To undo it, delete `~/.local/bin/moremole` and `~/.local
 - 1 to 5 still start Clean, Uninstall, Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter or Q; T, U and Q work as before.
 - The help screen and update notices name commands `moremole ...` instead of `mo ...`.
 - When a command finishes, press Enter or Q to come back to the menu. Analyze and Status come back as soon as you quit them. Ctrl-C stops the command and also comes back.
-- Update from Mole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version.
+- Update MoreMole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version.
 - A window too short for every row scrolls with the arrow keys, and says so under the list.
 
 ## Your own commands
@@ -93,7 +93,7 @@ If you pull changes with `git pull`, the next update rebuilds Analyze and Status
 
 ## Getting Mole's updates
 
-Choose **Update from Mole** in the menu, press U when an update notice shows, or run:
+Choose **Update MoreMole** in the menu, press U when an update notice shows, or run:
 
 ```sh
 bash scripts/moremole-sync.sh
