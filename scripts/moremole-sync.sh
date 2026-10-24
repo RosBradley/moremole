@@ -50,8 +50,7 @@ main() {
     [[ -z "$(git status --porcelain --untracked-files=no)" ]] ||
         die "there are uncommitted changes. Commit them first (git status shows them)."
 
-    local old_head old_main
-    old_head="$(git rev-parse HEAD)"
+    local old_main
 
     # Changes pushed to GitHub from elsewhere come down first, or the push at
     # the end would be refused.
@@ -100,13 +99,23 @@ main() {
 
     printf '\n%s is up to date with Mole.\n' "$PERSONAL_BRANCH"
 
-    # Go changes can come from Mole or from GitHub; either needs a rebuild, as
-    # does a folder that was never built.
-    if [[ -n "$(git diff --name-only "$old_head" HEAD -- cmd go.mod go.sum)" ||
-    ! -x bin/analyze-go || ! -x bin/status-go ]]; then
+    if go_parts_stale; then
         rebuild_go_parts
     fi
     printf '\nDone.\n'
+}
+
+# Whether Analyze or Status is missing or older than any of its Go source.
+# Comparing file times catches Go changes from any source: this update, a
+# git pull, or an edit, and git writes every file it changes with the
+# current time.
+go_parts_stale() {
+    local binary
+    for binary in bin/analyze-go bin/status-go; do
+        [[ -x "$binary" ]] || return 0
+        [[ -z "$(find cmd go.mod go.sum -newer "$binary" -print -quit 2> /dev/null)" ]] || return 0
+    done
+    return 1
 }
 
 # Rebuild Analyze and Status. The update itself has already finished, so a
