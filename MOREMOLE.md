@@ -60,7 +60,6 @@ Every command works from the command line and in scripts as in Mole: same comman
 
 ```
 ➤ Clean                  Preview            Protected caches
-  Uninstall              Preview
   Optimize               Preview            Protected items
   Analyze                External drives
   Status
@@ -71,6 +70,7 @@ Every command works from the command line and in scripts as in Mole: same comman
   Touch ID               Preview
   Shell completion       Preview
   Software updates       Preview
+  Software removal       Preview
   Update MoreMole
   ── My commands ──
   + Add a command
@@ -80,7 +80,8 @@ Every command works from the command line and in scripts as in Mole: same comman
 ```
 
 - Move with the arrow keys and press Enter. Preview shows what a command would do without doing it.
-- 1 to 5 still start Clean, Uninstall, Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter or Q; T, U and Q work as before.
+- Software removal is Mole's Uninstall, next to Software updates.
+- 1 to 5 still start Clean, Software removal (Uninstall), Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter or Q; T, U and Q work as before.
 - The help screen and update notices name commands `moremole ...` instead of `mo ...`.
 - Each command runs on the command screen, named after the menu item (for example "Clean · Preview"). The top rows stay put: the title, the command's summary, the keys and a divider. The command's output scrolls below them, and the terminal itself never scrolls.
 - While the command runs, a spinner turns beside the title. Clean shows its summary's labels with the spinner where the numbers will go (Potential space, Items and Categories for Preview; Tracked cleanup and Items cleaned for a real Clean). Other commands' summaries are sentences, so only the spinner shows.
@@ -90,7 +91,7 @@ Every command works from the command line and in scripts as in Mole: same comman
 - The results keep the colors and drop what was only on screen for a moment: progress spinners, pick lists, and screens a command cleared.
 - Analyze and Status are full-screen already and run on their own; they come back as soon as you quit them.
 - If the command screen is not built yet, commands run on a clear screen and the menu asks for Enter afterwards, as before.
-- If you cancel instead (Q or ESC in a pick list, or at the final "Enter confirm, ESC cancel" step), the menu comes back straight away, with nothing to dismiss. This covers Clean's password step, Uninstall, Purge, Installer files, Slim, Touch ID, Shell completion, Software updates and the Protected caches and Protected items lists.
+- If you cancel instead (Q or ESC in a pick list, or at the final "Enter confirm, ESC cancel" step), the menu comes back straight away, with nothing to dismiss. This covers Clean's password step, Software removal, Purge, Installer files, Slim, Touch ID, Shell completion, Software updates and the Protected caches and Protected items lists.
 - Update MoreMole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version.
 - A window too short for every row scrolls with the arrow keys, and says so under the list.
 
