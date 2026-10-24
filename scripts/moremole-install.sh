@@ -5,8 +5,9 @@
 # folder take effect at once; adds ~/.local/bin to PATH in ~/.zshrc when it is
 # missing; replaces an older `alias mm=` line; builds Analyze, Status and
 # Software updates when they were never built; offers to remove the official
-# Mole when Homebrew installed it; and offers Tab completion for moremole and
-# mm. Safe to run again.
+# Mole when Homebrew installed it; links Mole's own names, mo and mole, too
+# when no other Mole answers to them; and offers Tab completion for moremole
+# and mm. Safe to run again.
 #
 # Usage: bash scripts/moremole-install.sh
 
@@ -14,6 +15,8 @@ set -euo pipefail
 
 readonly LINK_DIR="$HOME/.local/bin"
 readonly LINK_NAMES=(moremole mm)
+# Mole's own names, linked only while no other Mole answers to them.
+readonly MOLE_NAMES=(mo mole)
 readonly SHELL_RC="$HOME/.zshrc"
 readonly PATH_MARKER="# moremole: commands in ~/.local/bin"
 
@@ -80,22 +83,57 @@ offer_official_removal() {
     fi
 }
 
+# Whether $1 is this installer's own link for a name, pointing at $2.
+is_our_link() {
+    [[ -L "$1" && "$(readlink "$1")" == "$2" ]]
+}
+
 # Report a Mole that was not installed by Homebrew without touching it: its
 # own `mo remove` would also move ~/.config/mole, and your commands, to Trash.
 report_other_mole() {
+    local repo_root="$1"
     # A Homebrew Mole was already offered for removal above.
     if command -v brew > /dev/null 2>&1 && brew list --formula mole > /dev/null 2>&1; then
         return 0
     fi
     local name path
-    for name in mo mole; do
+    for name in "${MOLE_NAMES[@]}"; do
         path="$(command -v "$name" 2> /dev/null || true)"
         [[ -n "$path" && "$path" == /* ]] || continue
+        ! is_our_link "$path" "$repo_root/mole" || continue
         printf '\nAnother Mole is still installed: %s\n' "$path"
         printf 'It was not installed with Homebrew. Do not remove it with "mo remove",\n'
         printf 'which also moves ~/.config/mole, and your MoreMole commands, to the Trash.\n'
         return 0
     done
+}
+
+# Link mo and mole to MoreMole too, so scripts written for Mole keep working,
+# unless something else already answers to the name: it keeps the name.
+link_mole_names() {
+    local repo_root="$1" name link taken path
+    local -a linked=()
+    for name in "${MOLE_NAMES[@]}"; do
+        link="$LINK_DIR/$name"
+        taken=""
+        if [[ -e "$link" || -L "$link" ]]; then
+            is_our_link "$link" "$repo_root/mole" || taken="$link"
+        fi
+        if [[ -z "$taken" ]]; then
+            path="$(command -v "$name" 2> /dev/null || true)"
+            [[ -z "$path" || "$path" == "$link" ]] || taken="$path"
+        fi
+        if [[ -n "$taken" ]]; then
+            printf '%s already runs %s, so it stays as it is.\n' "$name" "$taken"
+            continue
+        fi
+        ln -sfn "$repo_root/mole" "$link"
+        linked+=("$name")
+    done
+    case ${#linked[@]} in
+        1) printf '%s now runs MoreMole too.\n' "${linked[0]}" ;;
+        2) printf '%s and %s now run MoreMole too.\n' "${linked[0]}" "${linked[1]}" ;;
+    esac
 }
 
 main() {
@@ -127,7 +165,9 @@ main() {
     fi
 
     offer_official_removal
-    report_other_mole
+    report_other_mole "$repo_root"
+    printf '\n'
+    link_mole_names "$repo_root"
 
     # Mole's own completion setup asks before it changes ~/.zshrc and replaces
     # an earlier Mole completion line. ~/.local/bin goes first on PATH so it

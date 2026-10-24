@@ -94,3 +94,31 @@ install() {
 	[[ "$output" == *"Another Mole is still installed: $STUBS/mo"* ]] || return 1
 	[[ "$output" == *'Do not remove it with "mo remove"'* ]]
 }
+
+@test "installer links mo and mole to MoreMole when nothing else answers to them" {
+	run install
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[ "$(readlink "$FAKE_HOME/.local/bin/mo")" = "$REPO/mole" ] || return 1
+	[ "$(readlink "$FAKE_HOME/.local/bin/mole")" = "$REPO/mole" ] || return 1
+	[[ "$output" == *"mo and mole now run MoreMole too."* ]] || return 1
+
+	# Running it again keeps the links and does not take them for another Mole.
+	run env HOME="$FAKE_HOME" PATH="$FAKE_HOME/.local/bin:$STUBS:/usr/bin:/bin" BREW_LOG="$BREW_LOG" \
+		/bin/bash "$REPO/scripts/moremole-install.sh" < /dev/null
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[ "$(readlink "$FAKE_HOME/.local/bin/mo")" = "$REPO/mole" ] || return 1
+	[[ "$output" != *"Another Mole is still installed"* && "$output" != *"stays as it is"* ]]
+}
+
+@test "installer leaves mo and mole to another Mole that still answers to them" {
+	printf '#!/bin/bash\n' > "$STUBS/mo"
+	chmod +x "$STUBS/mo"
+	mkdir -p "$FAKE_HOME/.local/bin"
+	ln -s /somewhere/else/mole "$FAKE_HOME/.local/bin/mole"
+	run install
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[ ! -e "$FAKE_HOME/.local/bin/mo" ] || return 1
+	[ "$(readlink "$FAKE_HOME/.local/bin/mole")" = "/somewhere/else/mole" ] || return 1
+	[[ "$output" == *"mo already runs $STUBS/mo, so it stays as it is."* ]] || return 1
+	[[ "$output" == *"mole already runs $FAKE_HOME/.local/bin/mole, so it stays as it is."* ]]
+}
