@@ -207,3 +207,14 @@ func nextRefreshInterval(current time.Duration) time.Duration {
 func renderStatusFooter(refresh time.Duration) string {
 	return subtleStyle.Render(fmt.Sprintf("R refresh %gs  ·  C cores  ·  K cat  ·  Q quit", refresh.Seconds()))
 }
+
+// refreshMode makes a fast refresh also sample processes when refreshes come
+// faster than Mole samples them (every second). A fast refresh shows the last
+// process sample marked STALE, which at 0.5s flickered in on every other
+// refresh and moved the screen.
+func (m model) refreshMode(mode collectionMode) collectionMode {
+	if mode == collectionFast && m.schedule.hasSnapshot && m.refreshEvery() < processWatchInterval {
+		return collectionProcess
+	}
+	return mode
+}

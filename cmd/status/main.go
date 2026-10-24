@@ -144,7 +144,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.collecting = true
-		return m, m.collectCmd(m.schedule.nextMode(time.Now()))
+		return m, m.collectCmd(m.refreshMode(m.schedule.nextMode(time.Now()))) // moremole
 	case collectionResult:
 		if msg.err != nil {
 			m.errMessage = msg.err.Error()

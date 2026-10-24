@@ -250,3 +250,25 @@ func TestRefreshIntervalSetsTheWaitAndShowsInTheFooter(t *testing.T) {
 		t.Error("the frame does not show the footer")
 	}
 }
+
+func TestFastRefreshesSampleProcessesSoTheyNeverShowStale(t *testing.T) {
+	now := time.Now()
+	recent := collectionSchedule{hasSnapshot: true, lastFullAttemptAt: now, lastProcessAttemptAt: now}
+	if mode := recent.nextMode(now.Add(500 * time.Millisecond)); mode != collectionFast {
+		t.Fatalf("precondition: Mole's schedule gives %v half a second after a process sample", mode)
+	}
+	half := model{refresh: 500 * time.Millisecond, schedule: recent}
+	if got := half.refreshMode(collectionFast); got != collectionProcess {
+		t.Errorf("0.5s refresh: mode %v, want a process refresh", got)
+	}
+	if got := half.refreshMode(collectionFull); got != collectionFull {
+		t.Errorf("0.5s refresh keeps the full refresh: got %v", got)
+	}
+	if got := (model{refresh: time.Second, schedule: recent}).refreshMode(collectionFast); got != collectionFast {
+		t.Errorf("1s refresh: mode %v, want Mole's fast refresh unchanged", got)
+	}
+	// The very first refresh stays fast, so the first paint is quick.
+	if got := (model{refresh: 500 * time.Millisecond}).refreshMode(collectionFast); got != collectionFast {
+		t.Errorf("first refresh: mode %v, want fast", got)
+	}
+}
