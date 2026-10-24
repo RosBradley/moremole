@@ -1980,6 +1980,44 @@ EOF
     [[ "$output" != *"$HOME/.claude/shell-snapshots"* ]]
 }
 
+@test "developer cleanup stops after a Cursor log scan signal but not a timeout" {
+    for scan_rc in 0 1 124 130 143; do
+        run env HOME="$HOME/cursor-scan-$scan_rc" PROJECT_ROOT="$PROJECT_ROOT" SCAN_RC="$scan_rc" \
+            MOLE_TEST_NO_AUTH=1 MOLE_CURRENT_COMMAND=clean /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+mkdir -p "$HOME/.local/share/cursor-agent"
+safe_clean() { :; }
+clean_antigravity_caches() { :; }
+clean_agent_browser_old_chrome() { :; }
+clean_codex_desktop_caches() { :; }
+clean_codex_runtimes() { :; }
+clean_codex_desktop_staging() { :; }
+clean_codex_daemon_releases() { :; }
+clean_codex_crashpad_pending() { :; }
+clean_codex_marketplace_staging() { :; }
+clean_codex_cli() { :; }
+safe_find_delete() { echo SCAN_REACHED; return "$SCAN_RC"; }
+clean_chrome_devtools_mcp_caches() { echo NEXT_CACHE; }
+rc=0; _run_developer_cleanup_step clean_dev_misc || rc=$?
+printf 'RC=%s STICKY=%s\n' "$rc" "${MOLE_CLEAN_CANCEL_STATUS:-0}"
+EOF
+        [ "$status" -eq 0 ] || return 1
+        [[ "$output" == *SCAN_REACHED* ]] || return 1
+        case "$scan_rc" in
+            130 | 143)
+                [[ "$output" == *"RC=$scan_rc STICKY=$scan_rc"* ]] || return 1
+                [[ "$output" != *NEXT_CACHE* ]] || return 1
+                ;;
+            *)
+                [[ "$output" == *"RC=0 STICKY=0"* ]] || return 1
+                [[ "$output" == *NEXT_CACHE* ]] || return 1
+                ;;
+        esac
+    done
+}
+
 @test "clean_dev_mobile leaves an idle section when no unavailable simulator exists" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 DRY_RUN=true \
         /bin/bash --noprofile --norc << 'EOF'

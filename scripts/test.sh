@@ -359,11 +359,15 @@ echo ""
 echo "3. Running Go tests..."
 if command -v go > /dev/null 2>&1; then
     mkdir -p "$GO_TEST_CACHE"
-    if GOCACHE="$GO_TEST_CACHE" go build ./... > /dev/null 2>&1 &&
-        GOCACHE="$GO_TEST_CACHE" go vet ./... > /dev/null 2>&1 &&
-        GOCACHE="$GO_TEST_CACHE" go test ./... > /dev/null 2>&1; then
+    # Kept quiet on success; on failure the output names the failing test,
+    # which CI otherwise never shows (a CI-only Go failure on #1839).
+    go_test_log="$TEST_SYSTEM_STUB_DIR/go-test.log"
+    if GOCACHE="$GO_TEST_CACHE" go build ./... > "$go_test_log" 2>&1 &&
+        GOCACHE="$GO_TEST_CACHE" go vet ./... >> "$go_test_log" 2>&1 &&
+        GOCACHE="$GO_TEST_CACHE" go test ./... >> "$go_test_log" 2>&1; then
         printf '%b' "${GREEN}${ICON_SUCCESS} Go tests passed${NC}\n"
     else
+        cat "$go_test_log"
         printf '%b' "${RED}${ICON_ERROR} Go tests failed${NC}\n"
         FAILED=$((FAILED + 1))
     fi

@@ -351,3 +351,51 @@ func TestCollectNetworkKeepsIdleDefaultInterface(t *testing.T) {
 		t.Fatalf("busy interfaces pushed out the routed one: %s", got)
 	}
 }
+
+func TestNetworkCardShowsRoutedInterfaceIP(t *testing.T) {
+	ipLine := func(rows []NetworkStatus) string {
+		card := renderNetworkCard(rows, NetworkHistory{}, ProxyStatus{}, 40)
+		return card.lines[len(card.lines)-1]
+	}
+	wifi := NetworkStatus{Name: "en0", IP: "192.0.2.10"}
+	ethernet := NetworkStatus{Name: "en7", IP: "198.51.100.7"}
+
+	routedEthernet := ethernet
+	routedEthernet.defaultRoute = true
+	if got := ipLine([]NetworkStatus{wifi, routedEthernet}); got != "198.51.100.7" {
+		t.Fatalf("routed Ethernet IP not shown: %q", got)
+	}
+	if got := ipLine([]NetworkStatus{routedEthernet}); got != "198.51.100.7" {
+		t.Fatalf("routed adapter without en0 shows no IP: %q", got)
+	}
+	// A routed tunnel's address is not the LAN IP; keep en0.
+	tunnel := NetworkStatus{Name: "utun4", IP: "100.64.0.2", defaultRoute: true, defaultTunnel: true}
+	if got := ipLine([]NetworkStatus{tunnel, wifi}); got != "192.0.2.10" {
+		t.Fatalf("routed tunnel replaced the LAN IP: %q", got)
+	}
+	// Unknown route keeps the en0 fallback.
+	if got := ipLine([]NetworkStatus{ethernet, wifi}); got != "192.0.2.10" {
+		t.Fatalf("en0 fallback lost: %q", got)
+	}
+}
+
+func TestCollectNetworkMarksRoutedInterface(t *testing.T) {
+	original := ioCountersFunc
+	t.Cleanup(func() { ioCountersFunc = original })
+	ioCountersFunc = func(bool) ([]gopsutilnet.IOCountersStat, error) {
+		return []gopsutilnet.IOCountersStat{{Name: "en0"}, {Name: "en7"}}, nil
+	}
+	now := time.Now()
+	c := &Collector{
+		prevNet:             make(map[string]gopsutilnet.IOCountersStat),
+		defaultNetInterface: "en7",
+		cachedNetIPs:        map[string]string{"en0": "192.0.2.10", "en7": "198.51.100.7"},
+		lastNetIPAt:         now,
+	}
+	c.primeNetworkCounters(now)
+	got := c.collectNetwork(now.Add(time.Second))
+	card := renderNetworkCard(got, NetworkHistory{}, ProxyStatus{}, 40)
+	if line := card.lines[len(card.lines)-1]; line != "198.51.100.7" {
+		t.Fatalf("collected rows lost the routed interface: %+v, IP line %q", got, line)
+	}
+}

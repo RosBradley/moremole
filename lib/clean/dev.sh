@@ -5870,7 +5870,13 @@ clean_dev_misc() {
     # Codex CLI working-directory caches (~/.codex)
     clean_codex_cli
     # Cursor Agent session logs (versions cleaned separately in clean_dev_ai_agents)
-    [[ -d "$HOME/.local/share/cursor-agent" ]] && safe_find_delete "$HOME/.local/share/cursor-agent" "*.log" "$MOLE_LOG_AGE_DAYS" "f"
+    if [[ -d "$HOME/.local/share/cursor-agent" ]]; then
+        local cursor_logs_rc=0
+        safe_find_delete "$HOME/.local/share/cursor-agent" "*.log" "$MOLE_LOG_AGE_DAYS" "f" || cursor_logs_rc=$?
+        if mole_rc_signal "$cursor_logs_rc"; then
+            return "$cursor_logs_rc"
+        fi
+    fi
     # Playwright browser revisions are hard-protected by should_protect_path,
     # so no safe_clean call here can ever remove them. They cost a 100-500 MB
     # CDN re-download and a stale registry link does not prove the user is done

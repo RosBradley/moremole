@@ -3431,6 +3431,11 @@ safe_find_delete() {
     local age_days="${3:-7}"
     local type_filter="${4:-f}"
 
+    local pending_clean_cancel="${MOLE_CLEAN_CANCEL_STATUS:-0}"
+    if [[ "${MOLE_CURRENT_COMMAND:-}" == "clean" ]] && mole_rc_timeout_or_signal "$pending_clean_cancel"; then
+        return "$pending_clean_cancel"
+    fi
+
     # Validate base directory exists and is not a symlink
     if [[ ! -d "$base_dir" ]]; then
         log_error "Directory does not exist: $base_dir"
@@ -3465,6 +3470,7 @@ safe_find_delete() {
     if [[ $scan_rc -ne 0 ]]; then
         rm -f -- "$scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
         debug_log "Cleanup scan failed for $base_dir (status $scan_rc)"
+        [[ $scan_rc -lt 128 ]] || _mole_record_clean_cancellation "$scan_rc"
         return "$scan_rc"
     fi
 
@@ -3491,7 +3497,13 @@ safe_find_delete() {
             fi
             [[ $match_size_rc -eq 0 ]] || match_size_kb=0
             [[ "$match_size_kb" =~ ^[0-9]+$ ]] || match_size_kb=0
-            record_dry_run_cleanup_target "$match" "$match_size_kb" 1 true || continue
+            local preview_rc=0
+            record_dry_run_cleanup_target "$match" "$match_size_kb" 1 true || preview_rc=$?
+            if [[ $preview_rc -ge 128 ]]; then
+                delete_rc=$preview_rc
+                break
+            fi
+            [[ $preview_rc -eq 0 ]] || continue
         fi
         local remove_rc=0
         safe_remove "$match" true || remove_rc=$?
@@ -3505,6 +3517,7 @@ safe_find_delete() {
     done < "$scan_file"
     rm -f -- "$scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
 
+    [[ $delete_rc -lt 128 ]] || _mole_record_clean_cancellation "$delete_rc"
     return "$delete_rc"
 }
 
@@ -3560,6 +3573,11 @@ safe_sudo_find_delete() {
     # removals or accepted dry-run previews.
     MOLE_SAFE_SUDO_FIND_DELETE_COUNT=0
 
+    local pending_clean_cancel="${MOLE_CLEAN_CANCEL_STATUS:-0}"
+    if [[ "${MOLE_CURRENT_COMMAND:-}" == "clean" ]] && mole_rc_timeout_or_signal "$pending_clean_cancel"; then
+        return "$pending_clean_cancel"
+    fi
+
     if [[ "$type_filter" != "f" && "$type_filter" != "d" ]]; then
         log_error "Invalid type filter: $type_filter, must be 'f' or 'd'"
         return 1
@@ -3612,7 +3630,10 @@ safe_sudo_find_delete() {
         -n true < /dev/null > /dev/null 2>&1 || sudo_rc=$?
     if [[ $sudo_rc -ne 0 ]]; then
         [[ $restore_errexit -eq 1 ]] && set -e
-        [[ $sudo_rc -ge 128 ]] && return "$sudo_rc"
+        if [[ $sudo_rc -ge 128 ]]; then
+            _mole_record_clean_cancellation "$sudo_rc"
+            return "$sudo_rc"
+        fi
         mole_rc_timeout "$sudo_rc" && return 124
         return "$MOLE_ERR_AUTH_FAILED"
     fi
@@ -3624,6 +3645,7 @@ safe_sudo_find_delete() {
     if [[ $base_rc -ne 0 ]]; then
         if [[ $base_rc -ge 128 ]]; then
             [[ $restore_errexit -eq 1 ]] && set -e
+            _mole_record_clean_cancellation "$base_rc"
             return "$base_rc"
         fi
         if mole_rc_timeout "$base_rc"; then
@@ -3638,7 +3660,10 @@ safe_sudo_find_delete() {
             -n true < /dev/null > /dev/null 2>&1 || base_auth_rc=$?
         if [[ $base_auth_rc -ne 0 ]]; then
             [[ $restore_errexit -eq 1 ]] && set -e
-            [[ $base_auth_rc -ge 128 ]] && return "$base_auth_rc"
+            if [[ $base_auth_rc -ge 128 ]]; then
+                _mole_record_clean_cancellation "$base_auth_rc"
+                return "$base_auth_rc"
+            fi
             mole_rc_timeout "$base_auth_rc" && return 124
             return "$MOLE_ERR_AUTH_FAILED"
         fi
@@ -3661,6 +3686,7 @@ safe_sudo_find_delete() {
     fi
     if [[ $link_rc -ge 128 ]]; then
         [[ $restore_errexit -eq 1 ]] && set -e
+        _mole_record_clean_cancellation "$link_rc"
         return "$link_rc"
     fi
     if [[ $link_rc -eq 1 ]]; then
@@ -3669,7 +3695,10 @@ safe_sudo_find_delete() {
             -n true < /dev/null > /dev/null 2>&1 || link_auth_rc=$?
         if [[ $link_auth_rc -ne 0 ]]; then
             [[ $restore_errexit -eq 1 ]] && set -e
-            [[ $link_auth_rc -ge 128 ]] && return "$link_auth_rc"
+            if [[ $link_auth_rc -ge 128 ]]; then
+                _mole_record_clean_cancellation "$link_auth_rc"
+                return "$link_auth_rc"
+            fi
             mole_rc_timeout "$link_auth_rc" && return 124
             return "$MOLE_ERR_AUTH_FAILED"
         fi
@@ -3728,6 +3757,7 @@ safe_sudo_find_delete() {
     if [[ $scan_rc -ne 0 ]]; then
         rm -f -- "$scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
         debug_log "Privileged cleanup scan failed for $base_dir (status $scan_rc)"
+        [[ $scan_rc -lt 128 ]] || _mole_record_clean_cancellation "$scan_rc"
         [[ $restore_errexit -eq 1 ]] && set -e
         return "$scan_rc"
     fi
@@ -3772,9 +3802,13 @@ safe_sudo_find_delete() {
         # Run the same final path policy before preview accounting and real
         # removal. This keeps aliases such as /./ and case variants out of
         # both surfaces instead of relying on a raw-string precheck.
-        if ! validate_path_for_deletion "$match"; then
-            continue
+        local validation_rc=0
+        validate_path_for_deletion "$match" || validation_rc=$?
+        if [[ $validation_rc -ge 128 ]]; then
+            delete_rc=$validation_rc
+            break
         fi
+        [[ $validation_rc -eq 0 ]] || continue
         if _mole_privileged_path_has_mutable_ancestor "$match"; then
             # A privileged path-based delete cannot safely cross a directory
             # the invoking user can rename or replace. Delete only with the
@@ -3818,7 +3852,13 @@ safe_sudo_find_delete() {
                     match_size_known=true
                 fi
             fi
-            record_dry_run_cleanup_target "$match" "$match_size_kb" 1 "$match_size_known" || continue
+            local preview_rc=0
+            record_dry_run_cleanup_target "$match" "$match_size_kb" 1 "$match_size_known" || preview_rc=$?
+            if [[ $preview_rc -ge 128 ]]; then
+                delete_rc=$preview_rc
+                break
+            fi
+            [[ $preview_rc -eq 0 ]] || continue
         fi
         # -type f never emits symlinks; a path that is one now was swapped
         # after find saw it, and the single-file path refuses those.
@@ -3951,6 +3991,7 @@ safe_sudo_find_delete() {
 
     MOLE_SAFE_SUDO_FIND_DELETE_COUNT=$removed_count
 
+    [[ $delete_rc -lt 128 ]] || _mole_record_clean_cancellation "$delete_rc"
     if [[ $restore_errexit -eq 1 ]]; then
         set -e
     fi

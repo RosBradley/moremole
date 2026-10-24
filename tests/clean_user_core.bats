@@ -1264,6 +1264,67 @@ EOF
     [[ "$output" == *"Messages preview sticker cache"* ]]
 }
 
+@test "support cleanup stops on scan signals but continues after ordinary failures and timeouts" {
+    for scan_rc in 0 1 124 130 143; do
+        run env HOME="$HOME/support-scan-$scan_rc" PROJECT_ROOT="$PROJECT_ROOT" SCAN_RC="$scan_rc" \
+            MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+mkdir -p "$HOME/Library/Application Support/CrashReporter"
+safe_find_delete() { echo SCAN_REACHED; return "$SCAN_RC"; }
+safe_clean() { printf 'LATER:%s\n' "${*: -1}"; }
+rc=0; clean_support_app_data || rc=$?
+printf 'RC=%s\n' "$rc"
+EOF
+        [ "$status" -eq 0 ] || return 1
+        [[ "$output" == *SCAN_REACHED* ]] || return 1
+        case "$scan_rc" in
+            130 | 143)
+                [[ "$output" == *"RC=$scan_rc"* ]] || return 1
+                [[ "$output" != *LATER:* ]] || return 1
+                ;;
+            *)
+                [[ "$output" == *"RC=0"* ]] || return 1
+                [[ "$output" == *"LATER:Messages sticker cache"* ]] || return 1
+                ;;
+        esac
+    done
+}
+
+@test "app cache cleanup propagates support signals before the next cache group" {
+    for support_rc in 0 1 124 130 143; do
+        run env HOME="$HOME/support-parent-$support_rc" PROJECT_ROOT="$PROJECT_ROOT" SUPPORT_RC="$support_rc" \
+            MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+safe_clean() { :; }
+_clean_user_log_directory() { :; }
+_clean_incomplete_downloads() { :; }
+clean_support_app_data() { echo SUPPORT_REACHED; return "$SUPPORT_RC"; }
+# Stop at this existing boundary so the positive control does not scan real containers.
+_clean_wallpaper_renders() { echo NEXT_GROUP; return 7; }
+rc=0; clean_app_caches || rc=$?
+printf 'RC=%s\n' "$rc"
+EOF
+        [ "$status" -eq 0 ] || return 1
+        [[ "$output" == *SUPPORT_REACHED* ]] || return 1
+        case "$support_rc" in
+            130 | 143)
+                [[ "$output" == *"RC=$support_rc"* ]] || return 1
+                [[ "$output" != *NEXT_GROUP* ]] || return 1
+                ;;
+            *)
+                [[ "$output" == *"RC=7"* ]] || return 1
+                [[ "$output" == *NEXT_GROUP* ]] || return 1
+                ;;
+        esac
+    done
+}
+
 @test "clean_app_caches never hands a third-party container to safe_clean" {
     # The previous version mocked safe_clean to a no-op and asserted only that
     # "App caches" was absent from empty output, so it could not fail. It also
