@@ -221,7 +221,8 @@ slim_env() {
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"Usage: mo slim"* ]] || return 1
 	run env HOME="$HOME" "$PROJECT_ROOT/mole" --help
-	[[ "$output" == *"mo slim"* ]]
+	# moremole: the help screen names commands "moremole <command>".
+	[[ "$output" == *"moremole slim"* ]]
 }
 
 @test "slim refuses on an Intel host and says why" {
