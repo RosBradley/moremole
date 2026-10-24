@@ -327,11 +327,23 @@ moremole_menu_move() {
     printf '%s\n' "$((index + 1))"
 }
 
+# Wait for Enter or Q, the keys that leave a screen everywhere else, and
+# ignore any other key. The end of input counts as Enter.
+_moremole_wait_to_return() {
+    local key=""
+    printf '%sPress Enter or Q to return to the menu.%s' "$GRAY" "$NC"
+    while IFS= read -r -s -n 1 key; do
+        case "$key" in
+            "" | q | Q) break ;;
+        esac
+    done
+    printf '\n'
+}
+
 # Run a command, then come back to the menu. Full-screen commands (Analyze,
 # Status) return straight away; others wait for Enter so their output can be
 # read first. Also used by the 1-5 shortcuts in mole.
 moremole_run_and_return() {
-    local answer=""
     show_cursor
     drain_pending_input 0.1
     # Ctrl-C stops the command, not the menu, whose own handler would quit.
@@ -346,8 +358,8 @@ moremole_run_and_return() {
     case "$1" in
         */bin/analyze.sh | */bin/status.sh) ;;
         *)
-            printf '\n%sPress Enter to return to the menu.%s' "$GRAY" "$NC"
-            IFS= read -r answer || true
+            printf '\n'
+            _moremole_wait_to_return
             ;;
     esac
     hide_cursor
@@ -568,12 +580,10 @@ show_brand_banner() {
 
 # Show a screen such as help or version, then come back to the menu.
 moremole_show_and_return() {
-    local answer=""
     show_cursor
     clear
     "$@"
-    printf '%sPress Enter to return to the menu.%s' "$GRAY" "$NC"
-    IFS= read -r answer || true
+    _moremole_wait_to_return
     hide_cursor
     clear
 }

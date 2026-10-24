@@ -224,7 +224,7 @@ rm -f "$HOME/key-count"
 interactive_main_menu < <(printf "\n")
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"RAN_clean"*"Press Enter to return to the menu."*"MENU_DRAWN"*"RAN_status"*"MENU_DRAWN"* ]] || return 1
+	[[ "$output" == *"RAN_clean"*"Press Enter or Q to return to the menu."*"MENU_DRAWN"*"RAN_status"*"MENU_DRAWN"* ]] || return 1
 	# Status is full-screen, so it returns without asking for Enter.
 	local after_status="${output#*RAN_status}"
 	[[ "$after_status" != *"Press Enter"* ]]
@@ -280,7 +280,7 @@ read_update_message_cache "$HOME/.cache/mole/update_message"
 	[ "$output" = "Update 9.8.7 available, run moremole update" ]
 }
 
-@test "V and M show their screen and return to the menu" {
+@test "V and M show their screen and return to the menu on Q or Enter" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 show_main_menu() { echo "MENU_DRAWN"; }
 show_help() { echo "HELP_SHOWN"; }
@@ -297,10 +297,11 @@ read_key() {
     echo "${keys[n]}"
 }
 rm -f "$HOME/key-count"
-interactive_main_menu < <(printf "\n\n")
+# The help screen gets an ignored key, then Q; the version screen gets Enter.
+interactive_main_menu < <(printf "xq\n")
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"HELP_SHOWN"*"Press Enter to return to the menu."*"MENU_DRAWN"*"VERSION_SHOWN"*"Press Enter"*"MENU_DRAWN"* ]]
+	[[ "$output" == *"HELP_SHOWN"*"Press Enter or Q to return to the menu."*"MENU_DRAWN"*"VERSION_SHOWN"*"Press Enter"*"MENU_DRAWN"* ]]
 }
 
 @test "Tab completion covers moremole and mm, and setup uses the moremole command" {
