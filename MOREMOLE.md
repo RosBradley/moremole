@@ -1,8 +1,8 @@
 # moremole
 
-moremole is a personal fork of [Mole](https://github.com/tw93/Mole). It keeps everything Mole does and changes these things:
+moremole is a personal fork of [Mole](https://github.com/tw93/Mole) by tw93, modified since October 2026. Mole and moremole are licensed under GPL-3.0 (see `LICENSE`); moremole is not affiliated with or endorsed by the Mole project. It keeps everything Mole does and changes these things:
 
-- **The banner says MoreMole** and points to this repository, on the menu and the help screen.
+- **The banner says MoreMole** and points to this repository, on the menu and the help screen. The version screen (V) credits Mole and shows the moremole commit that is running.
 - **The main menu lists every command** from Mole's More screen (M), not just the first five. Each command has its own row, with its preview (dry-run) and other variants beside it, and a line under the menu describes the highlighted item.
 - **You can add your own commands to the menu,** and edit or remove them, right in the menu. They get a section of their own.
 - **Commands return to the menu** when they finish.
