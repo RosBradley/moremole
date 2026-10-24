@@ -3,8 +3,9 @@
 #
 # First brings down any moremole changes already on GitHub (origin), then
 # updates main to match upstream (fast-forward only), merges main into the
-# moremole branch, and pushes both to origin. Stops before changing anything
-# if there are uncommitted changes or if main has commits upstream doesn't.
+# moremole branch, pushes both to origin, and rebuilds the Go parts when they
+# changed. Stops before changing anything if there are uncommitted changes or
+# if main has commits upstream doesn't.
 #
 # Usage: bash scripts/moremole-sync.sh
 
@@ -97,12 +98,26 @@ main() {
 
     git push origin "$PERSONAL_BRANCH"
 
-    # Go changes can come from Mole or from GitHub; either needs a rebuild.
-    if [[ -n "$(git diff --name-only "$old_head" HEAD -- cmd go.mod go.sum)" ]]; then
-        printf '\nThe Go parts (analyze, status) changed. Rebuild them with: make build\n'
-    fi
+    printf '\n%s is up to date with Mole.\n' "$PERSONAL_BRANCH"
 
-    printf '\nDone. %s is up to date with Mole.\n' "$PERSONAL_BRANCH"
+    # Go changes can come from Mole or from GitHub; either needs a rebuild, as
+    # does a folder that was never built.
+    if [[ -n "$(git diff --name-only "$old_head" HEAD -- cmd go.mod go.sum)" ||
+    ! -x bin/analyze-go || ! -x bin/status-go ]]; then
+        rebuild_go_parts
+    fi
+    printf '\nDone.\n'
+}
+
+# Rebuild Analyze and Status. The update itself has already finished, so a
+# failed build says how to retry instead of undoing anything.
+rebuild_go_parts() {
+    if ! command -v go > /dev/null 2>&1; then
+        die "Analyze and Status need rebuilding, but Go is not installed. Install it with: brew install go, then run: make build"
+    fi
+    printf '\nRebuilding Analyze and Status...\n'
+    make build ||
+        die "the rebuild failed (see the message above). The update itself is done; fix the problem, then run: make build"
 }
 
 main "$@"
