@@ -21,21 +21,23 @@ The moremole changes live in their own files, so Mole's updates merge cleanly:
 
 ## Running it
 
-moremole runs straight from its folder. Add this line to `~/.zshrc`, then open a new Terminal window:
+moremole runs straight from its folder. Set up the `moremole` command, with `mm` as a short name for it, once:
 
 ```sh
-alias mm="$HOME/Developer/moremole/mole"
-```
-
-Type `mm` to open the menu. The official Mole, if installed, stays available as `mo`.
-
-Analyze and Status are written in Go, so they need building once. After that, the update rebuilds them whenever they change:
-
-```sh
-brew install go
 cd ~/Developer/moremole
-make build
+bash scripts/moremole-install.sh
 ```
+
+Then open a new Terminal window and type `moremole` or `mm`.
+
+The installer:
+
+- links `moremole` and `mm` in `~/.local/bin` to this folder, so updates take effect straight away, and adds `~/.local/bin` to `PATH` in `~/.zshrc` if it isn't there;
+- replaces an older `alias mm=` line in `~/.zshrc`;
+- builds Analyze and Status, which are written in Go, if they were never built (install Go first with `brew install go`); after that, the update rebuilds them whenever they change;
+- offers to remove the official Mole if Homebrew installed it, with `brew uninstall mole`, which keeps `~/.config/mole`. Don't use Mole's own `mo remove` for this: it also moves `~/.config/mole`, including your MoreMole commands, to the Trash.
+
+It's safe to run again. To undo it, delete `~/.local/bin/moremole` and `~/.local/bin/mm`.
 
 ## The menu
 
