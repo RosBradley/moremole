@@ -354,7 +354,7 @@ _moremole_command_heading() {
     esac
 }
 
-# The results screen's title when the caller gives none (the 1-5 shortcuts).
+# The command screen's title when the caller gives none (the 1-5 shortcuts).
 _moremole_command_title() {
     local title
     case "${1##*/}" in
@@ -379,41 +379,20 @@ _moremole_clear_all() {
     [[ ! -t 1 ]] || printf '\033[3J'
 }
 
-# Whether a command's output can be recorded for the results screen: macOS's
-# script(1) records it, and moremole-view-go shows it.
-_moremole_can_record() {
-    [[ "$(uname -s 2> /dev/null)" == "Darwin" && -x /usr/bin/script && -x "$SCRIPT_DIR/bin/moremole-view-go" ]]
+# The pane (moremole-view-go, cmd/moremole-view) runs a command between a
+# fixed title row and key row, then shows its output to scroll through.
+_moremole_pane() {
+    printf '%s' "$SCRIPT_DIR/bin/moremole-view-go"
 }
 
-# Run a command with its terminal output recorded to $1. The command gets a
-# terminal of its own, so prompts, pick lists, passwords and Ctrl-C work as
-# usual.
-_moremole_record() {
-    local log="$1"
-    shift
-    /usr/bin/script -q "$log" "$@"
-}
-
-# Show the recorded output $2 under the title $1, scrolling like the menu.
-# Clean's file list is offered on F when the run wrote it (newer than $3).
-_moremole_show_results() {
-    local title="$1" log="$2" started="$3" rows="$4" cols="$5"
-    local list="$HOME/.config/mole/clean-list.txt"
-    local -a list_args=()
-    if [[ -f "$list" && "$list" -nt "$started" ]]; then
-        list_args=(--file "$list")
-    fi
-    "$SCRIPT_DIR/bin/moremole-view-go" --title "$title" --rows "$rows" --cols "$cols" \
-        "${list_args[@]+"${list_args[@]}"}" "$log"
-}
-
-# Run a command on a screen of its own, then come back to the menu. Its
-# output is recorded and shown on a results screen afterwards, scrolling like
-# the menu; where that cannot work the menu waits for Enter instead.
-# Full-screen commands (Analyze, Status) and commands the user cancelled
-# (lib/moremole/cancel.sh) return straight away. The caller may name the
-# screen in MOREMOLE_RUN_TITLE and add a line under it in MOREMOLE_RUN_NOTE.
-# Also used by the 1-5 shortcuts in mole.
+# Run a command, then come back to the menu. The command runs in the pane:
+# its output scrolls inside a frame that stays put, like the menu, and then
+# stays on screen to scroll through. Where the pane cannot run (not built,
+# no terminal), the command runs on a clear screen and the menu waits for
+# Enter instead. Full-screen commands (Analyze, Status) run on their own,
+# and commands the user cancelled (lib/moremole/cancel.sh) return straight
+# away. The caller may name the screen in MOREMOLE_RUN_TITLE and add a line
+# under it in MOREMOLE_RUN_NOTE. Also used by the 1-5 shortcuts in mole.
 moremole_run_and_return() {
     local title="${MOREMOLE_RUN_TITLE:-}" note="${MOREMOLE_RUN_NOTE:-}"
     MOREMOLE_RUN_TITLE="" MOREMOLE_RUN_NOTE=""
@@ -425,51 +404,48 @@ moremole_run_and_return() {
 
     show_cursor
     drain_pending_input 0.1
-    _moremole_clear_all
-    local heading size
-    size="$(_moremole_terminal_size)"
-    heading="$(_moremole_command_heading "$1")"
-    if [[ -n "$note" ]]; then
-        printf '%s%s%s\n%s%s%s\n\n' "$BLUE" "$title" "$NC" "$GRAY" "$note" "$NC"
-    elif [[ -n "$heading" ]]; then
-        printf '%s%s%s\n' "$PURPLE_BOLD" "$heading" "$NC"
-        # Touch ID's own screen already starts with a blank line.
-        [[ "$1" == */bin/touchid.sh && $# -eq 1 ]] || printf '\n'
-    fi
-
-    local work="" log="" cancelled=false
+    local work="" in_pane=false cancelled=false pane
     work="$(mktemp -d "${TMPDIR:-/tmp}/moremole-run.XXXXXX" 2> /dev/null)" || work=""
-    [[ -z "$work" ]] || : > "$work/started"
-    if [[ -n "$work" && "$full_screen" != "true" ]] && _moremole_can_record; then
-        log="$work/output"
-    fi
+    pane="$(_moremole_pane)"
     # Ctrl-C stops the command, not the menu, whose own handler would quit.
     # The command starts with the default action, so it still stops.
     trap ':' INT
-    (
-        [[ -z "$work" ]] || export MOREMOLE_CANCEL_FILE="$work/cancelled"
-        if [[ -n "$log" ]]; then
-            _moremole_record "$log" "$@"
-        else
-            run_mole_command "$@"
+    if [[ "$full_screen" != "true" && -n "$work" && -x "$pane" ]]; then
+        local -a note_args=()
+        [[ -z "$note" ]] || note_args=(--note "$note")
+        MOREMOLE_CANCEL_FILE="$work/cancelled" "$pane" --title "$title" \
+            "${note_args[@]+"${note_args[@]}"}" --file "$HOME/.config/mole/clean-list.txt" \
+            --unstarted "$work/unstarted" -- "$@" || true
+        [[ -e "$work/unstarted" ]] || in_pane=true
+    fi
+    if [[ "$in_pane" != "true" ]]; then
+        _moremole_clear_all
+        local heading
+        heading="$(_moremole_command_heading "$1")"
+        if [[ -n "$note" ]]; then
+            printf '%s%s%s\n%s%s%s\n\n' "$BLUE" "$title" "$NC" "$GRAY" "$note" "$NC"
+        elif [[ -n "$heading" ]]; then
+            printf '%s%s%s\n' "$PURPLE_BOLD" "$heading" "$NC"
+            # Touch ID's own screen already starts with a blank line.
+            [[ "$1" == */bin/touchid.sh && $# -eq 1 ]] || printf '\n'
         fi
-    ) || true
+        (
+            [[ -z "$work" ]] || export MOREMOLE_CANCEL_FILE="$work/cancelled"
+            run_mole_command "$@"
+        ) || true
+        [[ -z "$work" || ! -e "$work/cancelled" ]] || cancelled=true
+        if [[ "$full_screen" != "true" && "$cancelled" != "true" ]]; then
+            printf '\n'
+            _moremole_wait_to_return
+        fi
+    fi
     if declare -F cleanup_and_exit > /dev/null; then
         trap cleanup_and_exit INT
     else
         trap - INT
     fi
-    [[ -z "$work" || ! -e "$work/cancelled" ]] || cancelled=true
-
-    if [[ "$full_screen" != "true" && "$cancelled" != "true" ]]; then
-        if [[ -z "$log" || ! -s "$log" ]] ||
-            ! _moremole_show_results "$title" "$log" "$work/started" "${size%% *}" "${size##* }"; then
-            printf '\n'
-            _moremole_wait_to_return
-        fi
-    fi
     if [[ -n "$work" ]]; then
-        rm -f "$work/cancelled" "$work/started" "$work/output" # SAFE: files inside this run's own mktemp folder
+        rm -f "$work/cancelled" "$work/unstarted" # SAFE: files inside this run's own mktemp folder
         rmdir "$work" 2> /dev/null || true
     fi
     hide_cursor
@@ -489,7 +465,7 @@ moremole_menu_activate() {
         mole)
             local -a words=()
             read -r -a words <<< "$args"
-            # The results screen is named after the row, plus the variant.
+            # The command screen is named after the row, plus the variant.
             local column="${MOREMOLE_MENU_COLS[index]:-0}"
             MOREMOLE_RUN_TITLE="${MOREMOLE_MENU_LABELS[index - column]}"
             ((column == 0)) || MOREMOLE_RUN_TITLE+=" · ${MOREMOLE_MENU_LABELS[index]}"

@@ -83,23 +83,39 @@ func TestReplayWrapsLongLinesAndWideCharacters(t *testing.T) {
 	}
 }
 
-func TestReplayDropsScriptBanners(t *testing.T) {
-	// util-linux writes a long header ending in a bare newline, even with -q.
-	data := "Script started on 2026-10-24 10:00:00+00:00 [COMMAND=\"bash -c 'source bin/moremole-updates.sh; main'\" <not executed on terminal>]\n" +
-		"Hello\r\n\r\n\nScript done on 2026-10-24 10:00:01+00:00 [COMMAND_EXIT_CODE=\"0\"]\n"
-	if got := plain(t, 60, 5, string(stripBanners([]byte(data)))); !reflect.DeepEqual(got, []string{"Hello"}) {
-		t.Errorf("got %q", got)
-	}
-	// Text that merely mentions a banner stays.
-	data = "echo Script done on Friday\r\nScript done on Friday\r\nmore\r\n"
-	if got := string(stripBanners([]byte(data))); got != data {
-		t.Errorf("stripped command output: %q", got)
-	}
-}
-
 func TestReplayIgnoresTitlesLinksAndUnknownSequences(t *testing.T) {
 	data := "\x1b]0;window title\x07\x1b]8;;file:///Users/me\x1b\\~/Library\x1b]8;;\x1b\\ \x1b[?25l\x1b[?2004hok\x1b(B\x1b=\r\n"
 	if got := plain(t, 40, 5, data); !reflect.DeepEqual(got, []string{"~/Library ok"}) {
 		t.Errorf("got %q", got)
 	}
+}
+
+func TestResizeKeepsTheCursorLineOnScreen(t *testing.T) {
+	term := newTerminal(20, 6)
+	term.write([]byte("a\r\nb\r\nc\r\nd\r\ne\r\nf"))
+	term.Resize(10, 3)
+	if row, _, _ := term.Cursor(); row != 2 {
+		t.Errorf("cursor row %d, want 2", row)
+	}
+	screen := term.Screen()
+	if len(screen) != 3 || ansi.Strip(screen[2]) != "f" || ansi.Strip(screen[0]) != "d" {
+		t.Errorf("screen %q", screen)
+	}
+	if got := strings.Join(plainLines(term), ","); got != "a,b,c,d,e,f" {
+		t.Errorf("history %q", got)
+	}
+	// The alternate screen keeps one screen.
+	term.write([]byte("\x1b[?1049hx\r\ny\r\nz"))
+	term.Resize(10, 2)
+	if screen := term.Screen(); len(screen) != 2 || ansi.Strip(screen[1]) != "z" {
+		t.Errorf("alternate screen %q", screen)
+	}
+}
+
+func plainLines(term *terminal) []string {
+	var out []string
+	for _, l := range term.Lines() {
+		out = append(out, ansi.Strip(l))
+	}
+	return out
 }

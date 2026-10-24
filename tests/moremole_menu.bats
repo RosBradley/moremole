@@ -12,7 +12,7 @@ teardown_file() {
 }
 
 setup() {
-	rm -rf "${HOME:?}/.config" # SAFE: test-owned mktemp HOME under tests/tmp-*
+	rm -rf "${HOME:?}/.config" "${HOME:?}/fake" "${HOME:?}/tmp" # SAFE: test-owned mktemp HOME under tests/tmp-*
 	mkdir -p "$HOME/.config/mole"
 }
 
@@ -234,73 +234,84 @@ interactive_main_menu < <(printf "\n")
 	[[ "$after_status" != *"Press Enter"* ]]
 }
 
-@test "a finished command's output opens on the results screen, with Clean's file list on F" {
+@test "commands run in the pane, named after the menu row, with Clean's file list and the cancel marker" {
+	printf 'Say hi\techo hi\n' > "$HOME/.config/mole/my_commands"
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 export TMPDIR="$HOME/tmp"
-mkdir -p "$TMPDIR" "$HOME/.config/mole"
+mkdir -p "$TMPDIR"
 SCRIPT_DIR="$HOME/fake"
 mkdir -p "$SCRIPT_DIR/bin"
-# Clean writes its file list; the other command leaves an old one alone.
-printf "#!/bin/bash\necho RAN_clean \"\$*\"\necho list > \"\$HOME/.config/mole/clean-list.txt\"\n" > "$SCRIPT_DIR/bin/clean.sh"
-printf "#!/bin/bash\necho RAN_history\n" > "$SCRIPT_DIR/bin/history.sh"
-printf "#!/bin/bash\nsource \"%s/lib/moremole/cancel.sh\"\necho RAN_slim\nmoremole_note_cancel\n" "$PROJECT_ROOT" > "$SCRIPT_DIR/bin/slim.sh"
-# The viewer reports what it was given and the recording it read.
-cat > "$SCRIPT_DIR/bin/moremole-view-go" << "VIEWER"
+printf "#!/bin/bash\necho RAN_clean \"\$*\"\n" > "$SCRIPT_DIR/bin/clean.sh"
+printf "#!/bin/bash\necho RAN_analyze\n" > "$SCRIPT_DIR/bin/analyze.sh"
+# The pane reports what it was given, then runs the command after --.
+cat > "$SCRIPT_DIR/bin/moremole-view-go" << "PANE"
 #!/bin/bash
-echo "VIEW $(printf "%s|" "$@")"
-echo "RECORDED: $(cat "${@: -1}")"
-VIEWER
+echo "PANE $(printf "%s|" "$@") CANCEL=$MOREMOLE_CANCEL_FILE"
+while [[ "$1" != "--" ]]; do shift; done
+shift
+"$@"
+PANE
 chmod +x "$SCRIPT_DIR"/bin/*
 hide_cursor() { :; }
 show_cursor() { :; }
 clear() { echo CLEARED; }
 drain_pending_input() { :; }
-_moremole_terminal_size() { echo "30 100"; }
-_moremole_can_record() { return 0; }
-_moremole_record() { local log="$1"; shift; "$@" > "$log"; }
+SHELL=/bin/sh
 moremole_load_menu_items
 echo "== preview"
 moremole_menu_activate 2 < /dev/null
-echo "== history"
-touch -t 202001010000 "$HOME/.config/mole/clean-list.txt"
-MOREMOLE_RUN_TITLE="History" moremole_run_and_return "$SCRIPT_DIR/bin/history.sh" < /dev/null
-echo "== slim"
-moremole_run_and_return "$SCRIPT_DIR/bin/slim.sh" < /dev/null
+echo "== analyze"
+moremole_run_and_return "$SCRIPT_DIR/bin/analyze.sh" < /dev/null
+echo "== mine"
+moremole_menu_activate 30 < /dev/null
 echo "== left: $(find "$TMPDIR" -mindepth 1 | wc -l | tr -d " ")"
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	local preview="${output#*== preview}" history="${output#*== history}" slim="${output#*== slim}"
-	preview="${preview%%== history*}"
-	history="${history%%== slim*}"
-	slim="${slim%%== left*}"
-	# The row and the variant name the screen; F gets the list Clean just wrote.
-	[[ "$preview" == *"VIEW --title|Clean · Preview|--rows|30|--cols|100|--file|$HOME/.config/mole/clean-list.txt|$HOME/tmp/moremole-run."*"/output|"* ]] || { echo "$output"; return 1; }
-	[[ "$preview" == *"RECORDED: RAN_clean --dry-run"* ]] || return 1
+	local preview="${output#*== preview}" analyze="${output#*== analyze}" mine="${output#*== mine}"
+	preview="${preview%%== analyze*}"
+	analyze="${analyze%%== mine*}"
+	mine="${mine%%== left*}"
+	# The row and the variant name the screen; F may offer Clean's list.
+	[[ "$preview" == *"PANE --title|Clean · Preview|--file|$HOME/.config/mole/clean-list.txt|--unstarted|$HOME/tmp/moremole-run."*"/unstarted|--|$HOME/fake/bin/clean.sh|--dry-run|"* ]] || { echo "$output"; return 1; }
+	[[ "$preview" == *" CANCEL=$HOME/tmp/moremole-run."*"/cancelled"*"RAN_clean --dry-run"* ]] || return 1
+	# The pane shows the results, so the menu does not ask for Enter.
 	[[ "$preview" != *"Press Enter"* ]] || return 1
-	# An old file list is not offered.
-	[[ "$history" == *"VIEW --title|History|--rows|30|--cols|100|$HOME/tmp/"* && "$history" != *"--file"* ]] || return 1
-	# A cancelled command skips the results screen.
-	[[ "$slim" != *"VIEW"* && "$slim" != *"Press Enter"* ]] || return 1
+	# Full-screen commands run on their own.
+	[[ "$analyze" == *"RAN_analyze"* && "$analyze" != *"PANE"* ]] || return 1
+	# My own commands keep their command line above the output.
+	[[ "$mine" == *"PANE --title|Say hi|--note|\$ echo hi|"*"hi"* ]] || return 1
 	[[ "$output" == *"== left: 0"* ]]
 }
 
-@test "the menu waits for Enter when the results screen cannot open" {
+@test "the menu runs a command the plain way only when the pane could not start it" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 SCRIPT_DIR="$HOME/fake"
 mkdir -p "$SCRIPT_DIR/bin"
 printf "#!/bin/bash\necho RAN_history\n" > "$SCRIPT_DIR/bin/history.sh"
-printf "#!/bin/bash\nexit 1\n" > "$SCRIPT_DIR/bin/moremole-view-go"
-chmod +x "$SCRIPT_DIR"/bin/*
 hide_cursor() { :; }
 show_cursor() { :; }
 clear() { :; }
 drain_pending_input() { :; }
-_moremole_can_record() { return 0; }
-_moremole_record() { local log="$1"; shift; "$@" > "$log"; }
+# A pane that could not start: it says so in the --unstarted file.
+cat > "$SCRIPT_DIR/bin/moremole-view-go" << "PANE"
+#!/bin/bash
+while [[ "$1" != "--unstarted" ]]; do shift; done
+: > "$2"
+exit 125
+PANE
+chmod +x "$SCRIPT_DIR"/bin/*
+echo "== unstarted"
+moremole_run_and_return "$SCRIPT_DIR/bin/history.sh" < <(printf "\n")
+# A command that exits 125 itself is not run a second time.
+printf "#!/bin/bash\necho PANE_RAN\nexit 125\n" > "$SCRIPT_DIR/bin/moremole-view-go"
+echo "== own 125"
 moremole_run_and_return "$SCRIPT_DIR/bin/history.sh" < <(printf "\n")
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"Press Enter or Q to return to the menu."* ]]
+	local unstarted="${output#*== unstarted}" own="${output#*== own 125}"
+	unstarted="${unstarted%%== own 125*}"
+	[[ "$unstarted" == *"RAN_history"*"Press Enter or Q to return to the menu."* ]] || { echo "$output"; return 1; }
+	[[ "$own" == *"PANE_RAN"* && "$own" != *"RAN_history"* && "$own" != *"Press Enter"* ]]
 }
 
 @test "my own commands show their name and command line above their output" {
@@ -319,7 +330,7 @@ moremole_menu_activate 30 < <(printf "\n")
 	[[ "$output" == $'CLEARED\nSay hi\n$ echo hi\n\nhi\n'*"Press Enter"* ]]
 }
 
-@test "each command opens on a clear screen, and a cancelled one comes straight back" {
+@test "without the pane, each command opens on a clear screen, and a cancelled one comes straight back" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 export TMPDIR="$HOME/tmp"
 mkdir -p "$TMPDIR"
@@ -348,7 +359,7 @@ echo "== left: $(find "$TMPDIR" -mindepth 1 | wc -l | tr -d " ")"
 	slim="${slim%%== touchid*}"
 	touchid="${touchid%%== left*}"
 	# The menu is cleared first, and commands without a heading get one.
-	[[ "$installer" == $'\nCLEARED\nInstaller files\n\nRAN_installer\n'*"Press Enter or Q to return to the menu."*"CLEARED"* ]] || return 1
+	[[ "$installer" == $'\nCLEARED\nInstaller files\n\nRAN_installer\n'*"Press Enter or Q to return to the menu."*"CLEARED"* ]] || { echo "$output"; return 1; }
 	# A cancelled command skips the Enter prompt.
 	[[ "$slim" == $'\nCLEARED\nSlim Intel code\n\nRAN_slim\nCLEARED\n' ]] || return 1
 	# Touch ID starts its own screen with a blank line, so no second one.

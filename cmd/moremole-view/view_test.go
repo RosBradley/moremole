@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -132,24 +133,48 @@ func TestFooterDropsHintsBeforeTheBackKey(t *testing.T) {
 	}
 }
 
-func TestRunReplaysARecordingFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "log")
-	if err := os.WriteFile(path, []byte("Hello\r\n"), 0o600); err != nil {
+func TestRunNeedsACommandAndATerminal(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
 		t.Fatal(err)
 	}
-	var stdout, stderr strings.Builder
-	if code := run([]string{"--rows", "5"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "Usage") {
-		t.Errorf("no recording: %d %q", code, stderr.String())
+	defer func() { _ = r.Close(); _ = w.Close() }()
+	var stderr strings.Builder
+	if code := run([]string{"--title", "x"}, r, w, &stderr); code != 2 || !strings.Contains(stderr.String(), "Usage") {
+		t.Errorf("no command: %d %q", code, stderr.String())
 	}
-	if code := run([]string{filepath.Join(dir, "missing")}, &stdout, &stderr); code != 1 {
-		t.Errorf("missing recording: %d", code)
+	// Without a terminal the menu runs the command the plain way, told so by
+	// the --unstarted file.
+	unstarted := filepath.Join(t.TempDir(), "unstarted")
+	if code := run([]string{"--unstarted", unstarted, "--", "true"}, r, w, &stderr); code != exitCannotRun {
+		t.Errorf("no terminal: %d", code)
 	}
-	if code := run([]string{"--print", path}, &stdout, &stderr); code != 0 || stdout.String() != "Hello\n" {
-		t.Errorf("--print: %d %q", code, stdout.String())
+	if _, err := os.Stat(unstarted); err != nil {
+		t.Errorf("no --unstarted file: %v", err)
 	}
-	if _, ok := readFileLines(""); ok {
-		t.Error("an empty --file was offered")
+	if _, ok := readFileLines(filepath.Join(t.TempDir(), "missing")); ok {
+		t.Error("a missing file was read")
+	}
+}
+
+func TestFileWrittenSinceTheRunStarted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clean-list.txt")
+	if err := os.WriteFile(path, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if fileWrittenSince(path, time.Now()) {
+		t.Error("an hour-old list counts as this run's")
+	}
+	start := time.Now()
+	if err := os.WriteFile(path, []byte("y\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !fileWrittenSince(path, start) {
+		t.Error("a list written during the run is not offered")
 	}
 }
 

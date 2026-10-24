@@ -145,15 +145,9 @@ func (m model) View() string {
 	if len(lines) > body {
 		position = fmt.Sprintf("%d-%d of %d", first+1, last, len(lines))
 	}
-	room := width - ansi.StringWidth(position) - 1
-	title = ansi.Truncate(title, max(1, room), "…")
-	gap := max(1, width-ansi.StringWidth(title)-ansi.StringWidth(position))
 
 	var sb strings.Builder
-	sb.WriteString(titleStyle + title + resetStyle)
-	if position != "" {
-		sb.WriteString(strings.Repeat(" ", gap) + grayStyle + position + resetStyle)
-	}
+	sb.WriteString(header(title, position, width))
 	sb.WriteString("\n")
 	for i := first; i < first+body; i++ {
 		if i < last {
@@ -163,6 +157,18 @@ func (m model) View() string {
 	}
 	sb.WriteString(grayStyle + m.footer(width) + resetStyle)
 	return sb.String()
+}
+
+// header is the title row: the title, and a gray note on the right.
+func header(title, note string, width int) string {
+	room := width - ansi.StringWidth(note) - 1
+	title = ansi.Truncate(title, max(1, room), "…")
+	row := titleStyle + title + resetStyle
+	if note != "" {
+		gap := max(1, width-ansi.StringWidth(title)-ansi.StringWidth(note))
+		row += strings.Repeat(" ", gap) + grayStyle + note + resetStyle
+	}
+	return row
 }
 
 // footer lists the keys, dropping the less needed ones when space runs out.

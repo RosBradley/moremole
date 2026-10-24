@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -9,11 +8,12 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The recording holds everything the command wrote to the terminal: text,
-// colors, spinner frames that overwrite one line, cursor moves, cleared
-// screens and the alternate screen pick lists draw on. Replaying it through
-// a small terminal gives the lines the user last saw, plus the lines that
-// scrolled off the top, instead of every intermediate frame.
+// A command run in the pane writes to a terminal of its own: text, colors,
+// spinner frames that overwrite one line, cursor moves, cleared screens and
+// the alternate screen pick lists draw on. This small terminal applies all
+// of that, so the pane can show the screen as the command drew it, and the
+// results can list what it left behind plus the lines that scrolled off the
+// top, instead of every intermediate frame.
 
 // maxLines bounds the replayed history; the oldest lines go first.
 const maxLines = 50000
@@ -38,6 +38,7 @@ type terminal struct {
 	main          buffer
 	alt           *buffer
 	style         sgr
+	cursorHidden  bool
 }
 
 func newTerminal(width, height int) *terminal {
@@ -85,7 +86,7 @@ func (t *terminal) lineFeed() {
 	// Scroll: the top row joins the history above the screen. The alternate
 	// screen keeps no history.
 	if b == t.alt {
-		b.lines = append(b.lines[1:], nil)
+		b.lines = append(b.lines[1:min(len(b.lines), t.height)], nil)
 		return
 	}
 	b.top++
@@ -285,6 +286,8 @@ func (t *terminal) csi(private byte, raw string, final byte) {
 		}
 		for _, mode := range p {
 			switch mode {
+			case 25:
+				t.cursorHidden = final == 'l'
 			case 47, 1047, 1049:
 				if mode == 1049 && final == 'h' {
 					t.saveCursor()
@@ -474,32 +477,61 @@ func (t *terminal) escape(data []byte, i int) int {
 	return i + 1
 }
 
-// Lines returns the replayed output, history first, with each line's colors
-// as SGR sequences and trailing blank lines dropped.
+// Screen returns the rows on screen now, with their colors, from the
+// alternate screen while a command uses it.
+func (t *terminal) Screen() []string {
+	b := t.buf()
+	rows := make([]string, t.height)
+	for r := range rows {
+		if i := b.top + r; i < len(b.lines) {
+			rows[r] = renderCells(b.lines[i])
+		}
+	}
+	return rows
+}
+
+// Cursor returns the cursor's screen row and column, and whether it shows.
+func (t *terminal) Cursor() (row, col int, visible bool) {
+	b := t.buf()
+	return b.row, b.col, !t.cursorHidden
+}
+
+// Resize follows a new window size. Lines keep their text; the cursor
+// keeps its line, which stays on screen.
+func (t *terminal) Resize(width, height int) {
+	width, height = max(1, width), max(1, height)
+	for _, b := range []*buffer{&t.main, t.alt} {
+		if b == nil {
+			continue
+		}
+		if b.row >= height {
+			shift := b.row - height + 1
+			if b == t.alt {
+				b.lines = b.lines[min(shift, len(b.lines)):]
+			} else {
+				b.top += shift
+			}
+			b.row -= shift
+		}
+		if b == t.alt && len(b.lines) > height {
+			// The alternate screen holds exactly one screen.
+			b.lines = b.lines[:height]
+		}
+		b.col = min(b.col, width-1)
+		b.wrapNext = false
+	}
+	t.width, t.height = width, height
+	t.ensureRow(t.buf(), t.buf().row)
+}
+
+// Lines returns the output, history first, with each line's colors as SGR
+// sequences and trailing blank lines dropped.
 func (t *terminal) Lines() []string {
 	out := make([]string, 0, len(t.main.lines))
 	for _, l := range t.main.lines {
 		out = append(out, renderCells(l))
 	}
 	return trimBlankEnd(out)
-}
-
-// stripBanners drops the lines script(1) adds around a recording when it
-// writes them (util-linux does even with -q); they are not the command's.
-func stripBanners(data []byte) []byte {
-	if bytes.HasPrefix(data, []byte("Script started on ")) {
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			data = data[i+1:]
-		} else {
-			data = nil
-		}
-	}
-	if i := bytes.LastIndex(data, []byte("Script done on ")); i >= 0 && (i == 0 || data[i-1] == '\n') {
-		if !bytes.Contains(data[i:], []byte{'\n'}) || bytes.IndexByte(data[i:], '\n') == len(data[i:])-1 {
-			data = data[:i]
-		}
-	}
-	return data
 }
 
 func trimBlankEnd(lines []string) []string {

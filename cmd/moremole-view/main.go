@@ -1,27 +1,35 @@
-// Command moremole-view-go shows what a command printed, after it finished,
-// on a screen of its own: the menu records the command's terminal output
-// with script(1), and this program replays the recording and lets the user
-// scroll it like the main menu. With --file it also offers that file (Clean's
-// list of files) on F.
+// Command moremole-view-go runs a command from the menu on a screen of its
+// own: the command's output scrolls inside a pane between a fixed title row
+// and a fixed key row, like the main menu, and keys go to the command. When
+// it finishes, the same screen shows everything it printed, to scroll
+// through like the menu, with Clean's file list on F when the run wrote it.
 //
-//	moremole-view-go --title TITLE --rows N --cols N [--file PATH] RECORDING
+//	moremole-view-go [--title TITLE] [--note TEXT] [--file PATH] [--unstarted PATH] -- COMMAND [ARGS...]
 //
-// --print writes the replayed lines instead, for checking a recording.
+// It exits with the command's status. When it could not start the command
+// (no terminal, for one) it exits with 125 and creates the --unstarted file,
+// so the menu can run the command another way without running it twice.
 package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// readFileLines reads the file offered on F; a missing or unreadable file
-// leaves the key out.
+// exitCannotRun tells the menu that nothing was started.
+const exitCannotRun = 125
+
+var errCannotRun = errors.New("cannot run the command in a pane")
+
+// readFileLines reads the file offered on F.
 func readFileLines(path string) ([]string, bool) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -37,63 +45,85 @@ func readFileLines(path string) ([]string, bool) {
 	return lines, scanner.Err() == nil
 }
 
-func replay(r io.Reader, cols, rows int) ([]string, error) {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
-	term := newTerminal(cols, rows)
-	term.write(stripBanners(data))
-	return term.Lines(), nil
+// fileWrittenSince reports whether path changed after the run started; an
+// older list belongs to an earlier run.
+func fileWrittenSince(path string, start time.Time) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.ModTime().Before(start.Truncate(time.Second))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+// cancelled reports whether the command said the user cancelled it, through
+// the marker the menu named (lib/moremole/cancel.sh).
+func cancelled() bool {
+	marker := os.Getenv("MOREMOLE_CANCEL_FILE")
+	if marker == "" {
+		return false
+	}
+	_, err := os.Stat(marker)
+	return err == nil
+}
+
+func run(args []string, stdin, stdout *os.File, stderr io.Writer) int {
 	flags := flag.NewFlagSet("moremole-view-go", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	title := flags.String("title", "Results", "title shown at the top")
-	rows := flags.Int("rows", 24, "terminal rows the command ran in")
-	cols := flags.Int("cols", 80, "terminal columns the command ran in")
-	file := flags.String("file", "", "a file to offer on F")
-	printOnly := flags.Bool("print", false, "print the replayed lines instead of showing them")
+	note := flags.String("note", "", "a line shown above the command's output")
+	file := flags.String("file", "", "a file to offer on F when the command writes it")
+	unstarted := flags.String("unstarted", "", "a file to create when the command could not start")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-	if flags.NArg() != 1 {
-		_, _ = fmt.Fprintln(stderr, "Usage: moremole-view-go --title TITLE --rows N --cols N [--file PATH] RECORDING")
+	argv := flags.Args()
+	if len(argv) == 0 {
+		_, _ = fmt.Fprintln(stderr, "Usage: moremole-view-go [--title TITLE] [--note TEXT] [--file PATH] [--unstarted PATH] -- COMMAND [ARGS...]")
 		return 2
 	}
-	f, err := os.Open(flags.Arg(0))
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
-		return 1
-	}
-	output, err := replay(f, *cols, *rows)
-	_ = f.Close()
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
-		return 1
-	}
-	if *printOnly {
-		for _, line := range output {
-			_, _ = fmt.Fprintln(stdout, line)
+	notStarted := func() int {
+		if *unstarted != "" {
+			_ = os.WriteFile(*unstarted, nil, 0o600)
 		}
-		return 0
+		return exitCannotRun
 	}
-	filePath := *file
-	fileLines, ok := readFileLines(filePath)
-	if !ok {
-		filePath = ""
+	if !isTerminal(stdin) || !isTerminal(stdout) {
+		return notStarted()
 	}
-	m := newModel(strings.TrimSpace(*title), output, filePath, fileLines, *cols, *rows)
-	if _, err := show(m); err != nil {
+
+	start := time.Now()
+	p := &pane{
+		title: strings.TrimSpace(*title),
+		note:  *note,
+		in:    stdin,
+		out:   stdout,
+		size:  func() (int, int, bool) { return terminalSize(stdout) },
+	}
+	output, code, err := p.run(argv)
+	if errors.Is(err, errCannotRun) {
 		_, _ = fmt.Fprintln(stderr, err)
-		return 1
+		return notStarted()
 	}
-	return 0
+	if err != nil || cancelled() {
+		leaveScreen(stdout)
+		return code
+	}
+
+	filePath := ""
+	var fileLines []string
+	if *file != "" && fileWrittenSince(*file, start) {
+		if lines, ok := readFileLines(*file); ok {
+			filePath, fileLines = *file, lines
+		}
+	}
+	cols, rows, _ := terminalSize(stdout)
+	m := newModel(p.title, output, filePath, fileLines, cols, rows)
+	if _, err := show(m); err != nil {
+		leaveScreen(stdout)
+		_, _ = fmt.Fprintln(stderr, err)
+	}
+	return code
 }
 
-// show runs the screen until the user leaves it; tests pass their own input
-// and output.
+// show runs the results screen until the user leaves it; tests pass their
+// own input and output.
 func show(m model, opts ...tea.ProgramOption) (model, error) {
 	final, err := tea.NewProgram(m, append([]tea.ProgramOption{tea.WithAltScreen()}, opts...)...).Run()
 	if done, ok := final.(model); ok {
@@ -103,5 +133,5 @@ func show(m model, opts ...tea.ProgramOption) (model, error) {
 }
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }

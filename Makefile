@@ -38,7 +38,7 @@ mod-download:
 	exit 1
 
 # Local build (current architecture)
-# MoreMole: also builds the Software updates helper and the results screen.
+# MoreMole: also builds the Software updates helper and the command screen.
 build: mod-download
 	@echo "Building for local architecture..."
 	$(GO) build -ldflags="$(LDFLAGS)" -o $(BIN_DIR)/$(ANALYZE)-go $(ANALYZE_SRC)
