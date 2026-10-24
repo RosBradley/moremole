@@ -188,9 +188,10 @@ _moremole_menu_layout() {
         overhead=$((overhead + 2))
     fi
     MOREMOLE_LAYOUT_VISIBLE_ROWS=$((term_lines - overhead))
-    # A list taller than the screen scrolls, and gives one row to the hint.
+    # A list taller than the screen scrolls, and gives a row above and a row
+    # below it to the "more" hints.
     if ((rows > MOREMOLE_LAYOUT_VISIBLE_ROWS)); then
-        MOREMOLE_LAYOUT_VISIBLE_ROWS=$((MOREMOLE_LAYOUT_VISIBLE_ROWS - 1))
+        MOREMOLE_LAYOUT_VISIBLE_ROWS=$((MOREMOLE_LAYOUT_VISIBLE_ROWS - 2))
     fi
     ((MOREMOLE_LAYOUT_VISIBLE_ROWS >= 3)) || MOREMOLE_LAYOUT_VISIBLE_ROWS=3
     ((MOREMOLE_LAYOUT_VISIBLE_ROWS <= rows)) || MOREMOLE_LAYOUT_VISIBLE_ROWS=$rows
@@ -225,6 +226,18 @@ moremole_show_menu_items() {
     ((MOREMOLE_MENU_TOP_ROW <= rows - visible)) || MOREMOLE_MENU_TOP_ROW=$((rows - visible))
     ((MOREMOLE_MENU_TOP_ROW >= 0)) || MOREMOLE_MENU_TOP_ROW=0
 
+    # A scrolling list says above it when items are hidden above, and below
+    # it when items are hidden below; the rows stay so the list never jumps.
+    local scrolling=false
+    ((visible >= rows)) || scrolling=true
+    if [[ "$scrolling" == "true" ]]; then
+        if ((MOREMOLE_MENU_TOP_ROW > 0)); then
+            printf '\r\033[2K  %s↑ more above%s\n' "$GRAY" "$NC"
+        else
+            printf '\r\033[2K\n'
+        fi
+    fi
+
     local row column index label kind line pad
     for ((row = MOREMOLE_MENU_TOP_ROW; row < MOREMOLE_MENU_TOP_ROW + visible; row++)); do
         line=""
@@ -253,16 +266,12 @@ moremole_show_menu_items() {
         printf '\r\033[2K%s\n' "$line"
     done
 
-    if ((visible < rows)); then
-        local hint
-        if ((MOREMOLE_MENU_TOP_ROW == 0)); then
-            hint="↓ more below"
-        elif ((MOREMOLE_MENU_TOP_ROW + visible >= rows)); then
-            hint="↑ more above"
+    if [[ "$scrolling" == "true" ]]; then
+        if ((MOREMOLE_MENU_TOP_ROW + visible < rows)); then
+            printf '\r\033[2K  %s↓ more below%s\n' "$GRAY" "$NC"
         else
-            hint="↑↓ more above and below"
+            printf '\r\033[2K\n'
         fi
-        printf '\r\033[2K  %s%s%s\n' "$GRAY" "$hint" "$NC"
     fi
 
     # One line only: a description wider than the window is shortened. A

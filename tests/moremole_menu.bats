@@ -82,13 +82,19 @@ moremole_load_menu_items
 last=${#MOREMOLE_MENU_LABELS[@]}
 printf "first:\n"; moremole_show_menu_items 1
 printf "last:\n"; moremole_show_menu_items "$last"
+printf "lines=%s,%s\n" "$(moremole_show_menu_items 1 | wc -l)" "$(moremole_show_menu_items "$last" | wc -l)"
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 	local first="${output%%last:*}" last="${output#*last:}"
-	[[ "$first" == *"Clean"* && "$first" == *"more below"* ]] || return 1
-	[[ "$first" != *"Cmd 7"* ]] || return 1
-	[[ "$last" == *"Cmd 7"* && "$last" == *"more above"* ]] || return 1
-	[[ "$last" != *"Protected caches"* ]]
+	# "more above" sits above the list and "more below" under it.
+	[[ "$first" == *"Clean"*"more below"* ]] || return 1
+	[[ "$first" != *"more above"* && "$first" != *"Cmd 7"* ]] || return 1
+	[[ "$last" == *"more above"*"Cmd 7"* ]] || return 1
+	local last_view="${last%%lines=*}"
+	[[ "$last_view" != *"more below"* && "$last" != *"Protected caches"* ]] || return 1
+	# Both hint rows are always there while scrolling, so the list keeps its place.
+	[[ "$output" =~ lines=\ *([0-9]+),\ *([0-9]+) ]] || return 1
+	[ "${BASH_REMATCH[1]}" -eq "${BASH_REMATCH[2]}" ]
 }
 
 # Items in the my-commands section: Add is 27, then each command's row holds
