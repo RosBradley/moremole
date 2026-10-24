@@ -38,11 +38,10 @@ readonly MOREMOLE_ADD_DESC="Add your own command to this menu"
 readonly MOREMOLE_MENU_COLUMNS=3
 readonly MOREMOLE_REPO_URL="github.com/RosBradley/moremole"
 
-# Lines show_main_menu prints around the items besides the banner: a blank
-# line above the banner and one below it; a blank line and the description,
-# then a blank line, the controls and a blank line below; plus the row the
-# cursor rests on so the last line cannot scroll.
-readonly MOREMOLE_MENU_OVERHEAD=8
+# Lines around the items besides the banner: the line under the banner (blank,
+# or "more above"); a blank line and the description; a blank line and the
+# controls; plus the row the cursor rests on so the last line cannot scroll.
+readonly MOREMOLE_MENU_OVERHEAD=6
 
 # One entry per menu item, in reading order (row by row, left to right).
 declare -a MOREMOLE_MENU_LABELS=()
@@ -193,10 +192,10 @@ _moremole_menu_layout() {
         overhead=$((overhead + 2))
     fi
     MOREMOLE_LAYOUT_VISIBLE_ROWS=$((term_lines - overhead))
-    # A list taller than the screen scrolls, and gives a row above and a row
-    # below it to the "more" hints.
+    # A list taller than the screen scrolls, and gives the row below it to
+    # "more below"; "more above" uses the line under the banner.
     if ((rows > MOREMOLE_LAYOUT_VISIBLE_ROWS)); then
-        MOREMOLE_LAYOUT_VISIBLE_ROWS=$((MOREMOLE_LAYOUT_VISIBLE_ROWS - 2))
+        MOREMOLE_LAYOUT_VISIBLE_ROWS=$((MOREMOLE_LAYOUT_VISIBLE_ROWS - 1))
     fi
     ((MOREMOLE_LAYOUT_VISIBLE_ROWS >= 3)) || MOREMOLE_LAYOUT_VISIBLE_ROWS=3
     ((MOREMOLE_LAYOUT_VISIBLE_ROWS <= rows)) || MOREMOLE_LAYOUT_VISIBLE_ROWS=$rows
@@ -231,16 +230,15 @@ moremole_show_menu_items() {
     ((MOREMOLE_MENU_TOP_ROW <= rows - visible)) || MOREMOLE_MENU_TOP_ROW=$((rows - visible))
     ((MOREMOLE_MENU_TOP_ROW >= 0)) || MOREMOLE_MENU_TOP_ROW=0
 
-    # A scrolling list says above it when items are hidden above, and below
-    # it when items are hidden below; the rows stay so the list never jumps.
+    # The line above the list is blank, or says "more above" when items are
+    # hidden above; while scrolling, the row under it is blank or says "more
+    # below", so the list never jumps.
     local scrolling=false
     ((visible >= rows)) || scrolling=true
-    if [[ "$scrolling" == "true" ]]; then
-        if ((MOREMOLE_MENU_TOP_ROW > 0)); then
-            printf '\r\033[2K  %s↑ more above%s\n' "$GRAY" "$NC"
-        else
-            printf '\r\033[2K\n'
-        fi
+    if [[ "$scrolling" == "true" ]] && ((MOREMOLE_MENU_TOP_ROW > 0)); then
+        printf '\r\033[2K  %s↑ more above%s\n' "$GRAY" "$NC"
+    else
+        printf '\r\033[2K\n'
     fi
 
     local row column index label kind line pad
@@ -581,7 +579,7 @@ show_version() {
     if _moremole_is_git_folder; then
         commit="$(git -C "$SCRIPT_DIR" log -1 --format='%h, %cd' --date=short 2> /dev/null)" || commit=""
     fi
-    _moremole_official_show_version "$@" | while IFS= read -r line || [[ -n "$line" ]]; do
+    _moremole_official_show_version | while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" == "Mole version "* ]]; then
             printf 'MoreMole version %s\n' "${line#Mole version }" 2> /dev/null || return 0
             printf 'Based on Mole by tw93: github.com/tw93/Mole\n' 2> /dev/null || return 0

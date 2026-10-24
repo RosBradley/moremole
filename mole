@@ -170,8 +170,8 @@ show_main_menu() {
 
     printf '\033[H'
 
+    # moremole: no blank line above the banner, to leave room for the list.
     local line=""
-    printf '\r\033[2K\n'
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         printf '\r\033[2K%s\n' "$line"
@@ -184,8 +184,8 @@ show_main_menu() {
         done <<< "$update_message"
     fi
 
-    printf '\r\033[2K\n'
-
+    # moremole: the list draws the line under the banner itself, holding
+    # "more above" when it has scrolled.
     moremole_show_menu_items "$selected"
 
     if [[ -t 0 ]]; then
@@ -195,7 +195,6 @@ show_main_menu() {
         local controls
         controls=$(_main_menu_controls_line "$touchid_state" "${MAIN_MENU_SHOW_UPDATE:-false}")
         printf '\r\033[2K%s\n' "$controls"
-        printf '\r\033[2K\n'
     fi
 
     printf '\033[J'
