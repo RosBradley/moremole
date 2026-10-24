@@ -87,7 +87,7 @@ func TestPaneShowsOutputInsideTheFrameAndPassesKeys(t *testing.T) {
 		}
 	}
 	// The title row and the key row frame the command's screen.
-	for _, want := range []string{"Clean · Preview", "running", "Ctrl-C Stop", "hello Brad"} {
+	for _, want := range []string{"Clean · Preview", "Running", "Ctrl-C Stop", "hello Brad"} {
 		if !strings.Contains(drawn, want) {
 			t.Errorf("screen lacks %q: %q", want, drawn)
 		}
@@ -105,6 +105,37 @@ func TestPaneCtrlCStopsTheCommand(t *testing.T) {
 	}
 }
 
+func TestPaneKeepsTheSummaryAndKeysAtTheTop(t *testing.T) {
+	p := &pane{title: "Clean · Preview", labels: []string{"Potential space", "Items", "Categories"}}
+	if got := p.rowsFor(24); got != 24-4 {
+		t.Fatalf("command rows %d, want 20 (title, summary, keys and divider above)", got)
+	}
+	top := p.top(70)
+	want := []string{
+		"Clean · Preview",
+		"Potential space: ⠖ | Items: ⠖ | Categories: ⠖",
+		liveKeys,
+		strings.Repeat("─", 70),
+	}
+	for i, w := range want {
+		if got := strings.TrimRight(ansi.Strip(top[i]), " "); !strings.HasPrefix(got, w) {
+			t.Errorf("row %d = %q, want %q", i, got, w)
+		}
+	}
+	if !strings.HasSuffix(ansi.Strip(top[0]), "⠖ Running") {
+		t.Errorf("title row %q", ansi.Strip(top[0]))
+	}
+	// The spinner turns.
+	p.ticks += spinEvery
+	if got := ansi.Strip(p.top(70)[1]); !strings.Contains(got, "⠲") {
+		t.Errorf("spinner did not turn: %q", got)
+	}
+	// Without labels there is no summary row.
+	if got := (&pane{title: "History"}).rowsFor(24); got != 21 {
+		t.Errorf("command rows without a summary: %d", got)
+	}
+}
+
 func TestPaneDrawsOnlyRowsThatChanged(t *testing.T) {
 	var out bytes.Buffer
 	p := &pane{title: "T", out: &out, term: newTerminal(20, 4)}
@@ -118,7 +149,8 @@ func TestPaneDrawsOnlyRowsThatChanged(t *testing.T) {
 	p.term.write([]byte("new\r\n"))
 	out.Reset()
 	p.draw()
-	if !strings.Contains(out.String(), "\x1b[2;1H") || !strings.Contains(out.String(), "new") {
+	// The command's first row sits under the title, the keys and the divider.
+	if !strings.Contains(out.String(), "\x1b[4;1H") || !strings.Contains(out.String(), "new") {
 		t.Errorf("the changed row was not drawn: %q", out.String())
 	}
 }

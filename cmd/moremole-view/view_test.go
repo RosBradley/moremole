@@ -55,20 +55,23 @@ func quits(m model, key string) bool {
 
 func TestViewOpensAtTheEndAndScrolls(t *testing.T) {
 	m := newModel("Clean · Preview", numbered(100), "", nil, 40, 12)
-	// 12 rows: a title, 10 lines and the keys.
-	if m.offset[outputPage] != 90 {
-		t.Fatalf("starts at %d, want the last page (90)", m.offset[outputPage])
+	// 12 rows: the title, the keys and a divider at the top, then 9 lines.
+	if m.offset[outputPage] != 91 {
+		t.Fatalf("starts at %d, want the last page (91)", m.offset[outputPage])
 	}
 	view := ansi.Strip(m.View())
 	rows := strings.Split(view, "\n")
-	if len(rows) != 12 || !strings.HasPrefix(rows[0], "Clean · Preview") || !strings.HasSuffix(rows[0], "91-100 of 100") {
+	if len(rows) != 12 || !strings.HasPrefix(rows[0], "Clean · Preview") || !strings.HasSuffix(rows[0], "92-100 of 100") {
 		t.Fatalf("view rows %d, title %q", len(rows), rows[0])
 	}
-	if rows[1] != "line 91" || rows[10] != "line 100" {
-		t.Errorf("body %q .. %q", rows[1], rows[10])
+	if !strings.HasPrefix(rows[1], "↑↓ Scroll") || rows[2] != strings.Repeat("─", 40) {
+		t.Errorf("keys %q, divider %q", rows[1], rows[2])
+	}
+	if rows[3] != "line 92" || rows[11] != "line 100" {
+		t.Errorf("body %q .. %q", rows[3], rows[11])
 	}
 	m = press(m, "up", "up", "pgup")
-	if m.offset[outputPage] != 78 {
+	if m.offset[outputPage] != 80 {
 		t.Errorf("after up, up, pgup: %d", m.offset[outputPage])
 	}
 	m = press(m, "home", "up")
@@ -76,7 +79,7 @@ func TestViewOpensAtTheEndAndScrolls(t *testing.T) {
 		t.Errorf("home then up: %d", m.offset[outputPage])
 	}
 	m = press(m, "end", "down", "pgdown")
-	if m.offset[outputPage] != 90 {
+	if m.offset[outputPage] != 91 {
 		t.Errorf("end, down, pgdown: %d", m.offset[outputPage])
 	}
 }
@@ -122,14 +125,68 @@ func TestViewFileListOnF(t *testing.T) {
 	}
 }
 
-func TestFooterDropsHintsBeforeTheBackKey(t *testing.T) {
+func TestKeysDropHintsBeforeTheBackKey(t *testing.T) {
 	m := newModel("Clean", numbered(3), "/tmp/x", []string{"x"}, 120, 12)
-	if f := m.footer(120); !strings.Contains(f, "Home End") || !strings.Contains(f, "PgUp PgDn") {
-		t.Errorf("wide footer %q", f)
+	if k := m.keys(120); !strings.Contains(k, "Home End") || !strings.Contains(k, "PgUp PgDn") {
+		t.Errorf("wide keys %q", k)
 	}
-	f := m.footer(50)
-	if strings.Contains(f, "Home End") || !strings.Contains(f, "F File list") || !strings.Contains(f, "Q Back to menu") {
-		t.Errorf("narrow footer %q", f)
+	k := m.keys(50)
+	if strings.Contains(k, "Home End") || !strings.Contains(k, "F File list") || !strings.Contains(k, "Q Back to menu") {
+		t.Errorf("narrow keys %q", k)
+	}
+}
+
+func cleanPreviewOutput() []string {
+	out := numbered(20)
+	return append(out, "",
+		strings.Repeat("=", 70),
+		"\x1b[1;34mDry run complete - no changes made\x1b[0m",
+		"Potential space: \x1b[0;33m611.0MB\x1b[0m | Items: 84 | Categories: 6",
+		"Detailed file list: \x1b[0;38;5;244m/tmp/clean-list.txt\x1b[0m",
+		"Use mo clean --whitelist to add protection rules",
+		strings.Repeat("=", 70))
+}
+
+func TestSummaryIsPinnedAtTheTop(t *testing.T) {
+	m := newModel("Clean · Preview", cleanPreviewOutput(), "/tmp/clean-list.txt", []string{"x"}, 80, 16)
+	rows := strings.Split(ansi.Strip(m.View()), "\n")
+	want := []string{
+		"Dry run complete - no changes made",
+		"Potential space: 611.0MB | Items: 84 | Categories: 6",
+		"Detailed file list: /tmp/clean-list.txt  (F to view)",
+		"Use mo clean --whitelist to add protection rules",
+	}
+	for i, w := range want {
+		if rows[1+i] != w {
+			t.Errorf("summary row %d = %q, want %q", i, rows[1+i], w)
+		}
+	}
+	if !strings.HasPrefix(rows[5], "↑↓ Scroll") || !strings.HasPrefix(rows[6], "───") {
+		t.Errorf("keys %q, divider %q", rows[5], rows[6])
+	}
+	// The summary is not repeated at the end of the output.
+	body := strings.Join(rows[7:], "\n")
+	if strings.Contains(body, "Potential space") || strings.Contains(body, "=====") || !strings.HasSuffix(body, "line 20") {
+		t.Errorf("body %q", body)
+	}
+	// The file list shows no summary.
+	m = press(m, "F")
+	if strings.Contains(ansi.Strip(m.View()), "Potential space") {
+		t.Error("the summary stayed on the file list")
+	}
+}
+
+func TestSplitSummaryNeedsAWholeBlock(t *testing.T) {
+	lines := []string{"a", strings.Repeat("=", 70), "b"}
+	if rest, summary := splitSummary(lines); summary != nil || len(rest) != 3 {
+		t.Errorf("one rule: %q %q", rest, summary)
+	}
+	lines = []string{"a", strings.Repeat("=", 70), "Done", strings.Repeat("=", 70), "after"}
+	if rest, summary := splitSummary(lines); strings.Join(summary, ",") != "Done" || strings.Join(rest, ",") != "a,after" {
+		t.Errorf("block: %q %q", rest, summary)
+	}
+	if rest, summary := splitSummary([]string{"=== a heading ==="}); summary != nil || len(rest) != 1 {
+		t.Errorf("text with = signs: %q %q", rest, summary)
 	}
 }
 
@@ -199,7 +256,7 @@ func TestShowRunsTheScreenUntilQ(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if final.page != outputPage || final.offset[outputPage] != 88 {
+	if final.page != outputPage || final.offset[outputPage] != 89 {
 		t.Errorf("ended on page %d at %d", final.page, final.offset[outputPage])
 	}
 	if !strings.Contains(ansi.Strip(out.String()), "Clean · Preview") {
@@ -216,8 +273,8 @@ func TestShowRunsTheScreenUntilQ(t *testing.T) {
 func TestKeysThatArriveTogetherEachCount(t *testing.T) {
 	m := newModel("Clean", numbered(100), "", nil, 40, 12)
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("kkk")})
-	if got := next.(model).offset[outputPage]; got != 87 {
-		t.Errorf("kkk scrolled to %d, want 87", got)
+	if got := next.(model).offset[outputPage]; got != 88 {
+		t.Errorf("kkk scrolled to %d, want 88", got)
 	}
 	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("kq")}); cmd == nil {
 		t.Error("a q among other keys did not leave")

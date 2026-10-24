@@ -372,6 +372,25 @@ _moremole_command_title() {
     printf '%s' "$title"
 }
 
+# The labels of a command's closing summary, which the command screen shows
+# with a spinner until the command prints the real one. Only Clean's summary
+# is a row of labels; the others are sentences.
+_moremole_summary_labels() {
+    [[ "${1##*/}" == "clean.sh" ]] || return 0
+    local arg dry_run=false
+    for arg in "${@:2}"; do
+        case "$arg" in
+            --dry-run | -n) dry_run=true ;;
+            --whitelist) return 0 ;;
+        esac
+    done
+    if [[ "$dry_run" == "true" ]]; then
+        printf 'Potential space|Items|Categories'
+    else
+        printf 'Tracked cleanup|Items cleaned'
+    fi
+}
+
 # Clear the screen and the terminal's scrollback, so a command's output does
 # not pile up behind the menu.
 _moremole_clear_all() {
@@ -411,10 +430,13 @@ moremole_run_and_return() {
     # The command starts with the default action, so it still stops.
     trap ':' INT
     if [[ "$full_screen" != "true" && -n "$work" && -x "$pane" ]]; then
-        local -a note_args=()
-        [[ -z "$note" ]] || note_args=(--note "$note")
+        local -a extra_args=()
+        local labels
+        labels="$(_moremole_summary_labels "$@")"
+        [[ -z "$note" ]] || extra_args+=(--note "$note")
+        [[ -z "$labels" ]] || extra_args+=(--summary "$labels")
         MOREMOLE_CANCEL_FILE="$work/cancelled" "$pane" --title "$title" \
-            "${note_args[@]+"${note_args[@]}"}" --file "$HOME/.config/mole/clean-list.txt" \
+            "${extra_args[@]+"${extra_args[@]}"}" --file "$HOME/.config/mole/clean-list.txt" \
             --unstarted "$work/unstarted" -- "$@" || true
         [[ -e "$work/unstarted" ]] || in_pane=true
     fi

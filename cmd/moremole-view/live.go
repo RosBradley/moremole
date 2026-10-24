@@ -18,17 +18,19 @@ import (
 )
 
 // pane runs a command on a terminal of its own and shows that terminal's
-// screen between a fixed title row and a fixed key row, so the command's
-// output scrolls inside the frame while the frame stays put. Keys go to the
-// command, so its prompts, passwords and pick lists work as usual.
+// screen below fixed rows at the top (frame.go), so the command's output
+// scrolls under them while they stay put. Keys go to the command, so its
+// prompts, passwords and pick lists work as usual.
 type pane struct {
-	title string
-	note  string
-	in    *os.File  // the user's keyboard
-	out   io.Writer // the user's screen
-	size  func() (cols, rows int, ok bool)
-	term  *terminal
-	prev  []string // rows last drawn, to redraw only what changed
+	title  string
+	note   string
+	labels []string  // the summary's labels, shown with a spinner meanwhile
+	in     *os.File  // the user's keyboard
+	out    io.Writer // the user's screen
+	size   func() (cols, rows int, ok bool)
+	term   *terminal
+	prev   []string // rows last drawn, to redraw only what changed
+	ticks  int      // redraw ticks, which turn the spinner
 }
 
 // redrawEvery caps redraws while output streams in.
@@ -66,8 +68,18 @@ func setSize(master *os.File, cols, rows int) {
 	_ = unix.IoctlSetWinsize(int(master.Fd()), unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
 }
 
-// paneRows leaves a row for the title and one for the keys.
-func paneRows(rows int) int { return max(1, rows-2) }
+// spinEvery is how many redraw ticks each spinner frame shows.
+const spinEvery = 4
+
+func (p *pane) spinner() string { return spinnerFrames[(p.ticks/spinEvery)%len(spinnerFrames)] }
+
+func (p *pane) top(cols int) []string {
+	spin := p.spinner()
+	return topRows(p.title, spin+" Running", placeholder(p.labels, spin), liveKeys, cols)
+}
+
+// rowsFor leaves the fixed rows at the top out of the command's screen.
+func (p *pane) rowsFor(rows int) int { return max(1, rows-len(p.top(1))) }
 
 // run starts argv in the pane and returns its output once it exits, with
 // its exit status (-1 when a signal stopped it). errCannotRun means nothing
@@ -77,7 +89,7 @@ func (p *pane) run(argv []string) ([]string, int, error) {
 	if !ok {
 		return nil, 0, fmt.Errorf("%w: no terminal size", errCannotRun)
 	}
-	p.term = newTerminal(cols, paneRows(rows))
+	p.term = newTerminal(cols, p.rowsFor(rows))
 	if p.note != "" {
 		p.term.write([]byte(grayStyle + p.note + resetStyle + "\r\n\r\n"))
 	}
@@ -97,7 +109,7 @@ func (p *pane) run(argv []string) ([]string, int, error) {
 			defer func() { _ = unix.IoctlSetTermios(inFd, setTermios, orig) }()
 		}
 	}
-	setSize(master, cols, paneRows(rows))
+	setSize(master, cols, p.rowsFor(rows))
 
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
@@ -174,12 +186,16 @@ loop:
 			break loop
 		case <-winch:
 			if c, r, ok := p.size(); ok {
-				p.term.Resize(c, paneRows(r))
-				setSize(master, c, paneRows(r))
+				p.term.Resize(c, p.rowsFor(r))
+				setSize(master, c, p.rowsFor(r))
 				p.prev = nil
 				dirty = true
 			}
 		case <-tick.C:
+			p.ticks++
+			if p.ticks%spinEvery == 0 {
+				dirty = true
+			}
 			if dirty {
 				p.draw()
 				dirty = false
@@ -232,13 +248,12 @@ func forwardInput(fd int, to io.Writer, stop <-chan struct{}, done chan<- struct
 	}
 }
 
-// draw shows the frame: the title, the command's screen, and the keys.
+// draw shows the fixed rows and, under them, the command's screen.
 func (p *pane) draw() {
 	cols := p.term.width
-	frame := make([]string, 0, p.term.height+2)
-	frame = append(frame, header(p.title, "running", cols))
+	frame := p.top(cols)
+	above := len(frame)
 	frame = append(frame, p.term.Screen()...)
-	frame = append(frame, grayStyle+ansi.Truncate("Keys go to the command  |  Ctrl-C Stop", cols, "…")+resetStyle)
 	var sb strings.Builder
 	sb.WriteString("\x1b[?25l")
 	for i, line := range frame {
@@ -249,7 +264,7 @@ func (p *pane) draw() {
 	}
 	p.prev = frame
 	if row, col, visible := p.term.Cursor(); visible {
-		fmt.Fprintf(&sb, "\x1b[%d;%dH\x1b[?25h", row+2, col+1)
+		fmt.Fprintf(&sb, "\x1b[%d;%dH\x1b[?25h", above+row+1, col+1)
 	}
 	_, _ = io.WriteString(p.out, sb.String())
 }

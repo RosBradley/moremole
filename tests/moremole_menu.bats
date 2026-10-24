@@ -272,7 +272,7 @@ echo "== left: $(find "$TMPDIR" -mindepth 1 | wc -l | tr -d " ")"
 	analyze="${analyze%%== mine*}"
 	mine="${mine%%== left*}"
 	# The row and the variant name the screen; F may offer Clean's list.
-	[[ "$preview" == *"PANE --title|Clean · Preview|--file|$HOME/.config/mole/clean-list.txt|--unstarted|$HOME/tmp/moremole-run."*"/unstarted|--|$HOME/fake/bin/clean.sh|--dry-run|"* ]] || { echo "$output"; return 1; }
+	[[ "$preview" == *"PANE --title|Clean · Preview|--summary|Potential space|Items|Categories|--file|$HOME/.config/mole/clean-list.txt|--unstarted|$HOME/tmp/moremole-run."*"/unstarted|--|$HOME/fake/bin/clean.sh|--dry-run|"* ]] || { echo "$output"; return 1; }
 	[[ "$preview" == *" CANCEL=$HOME/tmp/moremole-run."*"/cancelled"*"RAN_clean --dry-run"* ]] || return 1
 	# The pane shows the results, so the menu does not ask for Enter.
 	[[ "$preview" != *"Press Enter"* ]] || return 1
@@ -281,6 +281,20 @@ echo "== left: $(find "$TMPDIR" -mindepth 1 | wc -l | tr -d " ")"
 	# My own commands keep their command line above the output.
 	[[ "$mine" == *"PANE --title|Say hi|--note|\$ echo hi|"*"hi"* ]] || return 1
 	[[ "$output" == *"== left: 0"* ]]
+}
+
+@test "only Clean names summary labels for the command screen" {
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+for args in "clean.sh --dry-run" "clean.sh" "clean.sh --whitelist" "purge.sh --dry-run"; do
+    read -r -a words <<< "$args"
+    printf "%s => [%s]\n" "$args" "$(_moremole_summary_labels "$SCRIPT_DIR/bin/${words[0]}" "${words[@]:1}")"
+done
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"clean.sh --dry-run => [Potential space|Items|Categories]"* ]] || return 1
+	[[ "$output" == *"clean.sh => [Tracked cleanup|Items cleaned]"* ]] || return 1
+	[[ "$output" == *"clean.sh --whitelist => []"* ]] || return 1
+	[[ "$output" == *"purge.sh --dry-run => []"* ]]
 }
 
 @test "the menu runs a command the plain way only when the pane could not start it" {

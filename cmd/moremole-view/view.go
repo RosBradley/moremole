@@ -29,10 +29,12 @@ const (
 	filePage
 )
 
-// model shows the command's output and, on F, the file list it wrote.
+// model shows the command's output, its summary pinned at the top, and, on
+// F, the file list it wrote.
 type model struct {
 	title     string
 	output    []string
+	summary   []string
 	filePath  string
 	fileLines []string // as read; wrapped to the width when shown
 	page      page
@@ -42,8 +44,17 @@ type model struct {
 }
 
 func newModel(title string, output []string, filePath string, fileLines []string, width, height int) model {
-	m := model{title: title, output: output, filePath: filePath, fileLines: fileLines, width: width, height: height}
-	m.offset[outputPage] = m.maxOffset() // the summary is at the end
+	rest, summary := splitSummary(output)
+	if filePath != "" {
+		// Point at F from the summary line that names the file.
+		for i, s := range summary {
+			if strings.Contains(ansi.Strip(s), filePath) {
+				summary[i] = s + grayStyle + "  (F to view)" + resetStyle
+			}
+		}
+	}
+	m := model{title: title, output: rest, summary: summary, filePath: filePath, fileLines: fileLines, width: width, height: height}
+	m.offset[outputPage] = m.maxOffset() // what the command did last is at the end
 	return m
 }
 
@@ -66,8 +77,17 @@ func (m model) lines() []string {
 	return m.output
 }
 
-// bodyHeight leaves a row for the title and one for the keys.
-func (m model) bodyHeight() int { return max(1, m.height-2) }
+// pinned is the summary shown above the output; the file list shows none.
+func (m model) pinned() []string {
+	if m.page == filePage {
+		return nil
+	}
+	return m.summary
+}
+
+// bodyHeight leaves the rows above the output: the title, the summary, the
+// keys and the divider.
+func (m model) bodyHeight() int { return max(1, m.height-3-len(m.pinned())) }
 
 func (m model) maxOffset() int { return max(0, len(m.lines())-m.bodyHeight()) }
 
@@ -146,33 +166,19 @@ func (m model) View() string {
 		position = fmt.Sprintf("%d-%d of %d", first+1, last, len(lines))
 	}
 
-	var sb strings.Builder
-	sb.WriteString(header(title, position, width))
-	sb.WriteString("\n")
+	rows := topRows(title, position, m.pinned(), m.keys(width), width)
 	for i := first; i < first+body; i++ {
+		row := ""
 		if i < last {
-			sb.WriteString(ansi.Truncate(lines[i], width, "…"))
+			row = ansi.Truncate(lines[i], width, "…")
 		}
-		sb.WriteString("\n")
+		rows = append(rows, row)
 	}
-	sb.WriteString(grayStyle + m.footer(width) + resetStyle)
-	return sb.String()
+	return strings.Join(rows, "\n")
 }
 
-// header is the title row: the title, and a gray note on the right.
-func header(title, note string, width int) string {
-	room := width - ansi.StringWidth(note) - 1
-	title = ansi.Truncate(title, max(1, room), "…")
-	row := titleStyle + title + resetStyle
-	if note != "" {
-		gap := max(1, width-ansi.StringWidth(title)-ansi.StringWidth(note))
-		row += strings.Repeat(" ", gap) + grayStyle + note + resetStyle
-	}
-	return row
-}
-
-// footer lists the keys, dropping the less needed ones when space runs out.
-func (m model) footer(width int) string {
+// keys lists the keys, dropping the less needed ones when space runs out.
+func (m model) keys(width int) string {
 	back := "Q Back to menu"
 	if m.page == filePage {
 		back = "Q Back to results"

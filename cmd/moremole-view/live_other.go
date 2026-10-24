@@ -9,11 +9,12 @@ import (
 )
 
 type pane struct {
-	title string
-	note  string
-	in    *os.File
-	out   io.Writer
-	size  func() (cols, rows int, ok bool)
+	title  string
+	note   string
+	labels []string
+	in     *os.File
+	out    io.Writer
+	size   func() (cols, rows int, ok bool)
 }
 
 func terminalSize(*os.File) (int, int, bool) { return 0, 0, false }

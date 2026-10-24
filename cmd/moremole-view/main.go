@@ -1,10 +1,11 @@
 // Command moremole-view-go runs a command from the menu on a screen of its
-// own: the command's output scrolls inside a pane between a fixed title row
-// and a fixed key row, like the main menu, and keys go to the command. When
-// it finishes, the same screen shows everything it printed, to scroll
-// through like the menu, with Clean's file list on F when the run wrote it.
+// own: fixed rows at the top hold the title, the command's summary (its
+// labels with a spinner until it finishes) and the keys, and the command's
+// output scrolls below them, like the main menu; keys go to the command.
+// When it finishes, its summary is pinned at the top and the rest of what it
+// printed scrolls below, with Clean's file list on F when the run wrote it.
 //
-//	moremole-view-go [--title TITLE] [--note TEXT] [--file PATH] [--unstarted PATH] -- COMMAND [ARGS...]
+//	moremole-view-go [--title TITLE] [--note TEXT] [--summary LABELS] [--file PATH] [--unstarted PATH] -- COMMAND [ARGS...]
 //
 // It exits with the command's status. When it could not start the command
 // (no terminal, for one) it exits with 125 and creates the --unstarted file,
@@ -69,13 +70,14 @@ func run(args []string, stdin, stdout *os.File, stderr io.Writer) int {
 	title := flags.String("title", "Results", "title shown at the top")
 	note := flags.String("note", "", "a line shown above the command's output")
 	file := flags.String("file", "", "a file to offer on F when the command writes it")
+	summary := flags.String("summary", "", "the summary's labels, |-separated, shown with a spinner while the command runs")
 	unstarted := flags.String("unstarted", "", "a file to create when the command could not start")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	argv := flags.Args()
 	if len(argv) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: moremole-view-go [--title TITLE] [--note TEXT] [--file PATH] [--unstarted PATH] -- COMMAND [ARGS...]")
+		_, _ = fmt.Fprintln(stderr, "Usage: moremole-view-go [--title TITLE] [--note TEXT] [--summary LABELS] [--file PATH] [--unstarted PATH] -- COMMAND [ARGS...]")
 		return 2
 	}
 	notStarted := func() int {
@@ -89,12 +91,19 @@ func run(args []string, stdin, stdout *os.File, stderr io.Writer) int {
 	}
 
 	start := time.Now()
+	var labels []string
+	for label := range strings.SplitSeq(*summary, "|") {
+		if label = strings.TrimSpace(label); label != "" {
+			labels = append(labels, label)
+		}
+	}
 	p := &pane{
-		title: strings.TrimSpace(*title),
-		note:  *note,
-		in:    stdin,
-		out:   stdout,
-		size:  func() (int, int, bool) { return terminalSize(stdout) },
+		title:  strings.TrimSpace(*title),
+		note:   *note,
+		labels: labels,
+		in:     stdin,
+		out:    stdout,
+		size:   func() (int, int, bool) { return terminalSize(stdout) },
 	}
 	output, code, err := p.run(argv)
 	if errors.Is(err, errCannotRun) {
