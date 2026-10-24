@@ -174,6 +174,7 @@ type DiskStatus struct {
 
 type NetworkStatus struct {
 	defaultTunnel bool    // Sample-local routing hint; not part of the JSON contract.
+	defaultRoute  bool    // Carries the default route, tunnel or not; the IP line uses it, sort and totals use defaultTunnel.
 	Name          string  `json:"name"`
 	RxRateMBs     float64 `json:"rx_rate_mbs"`
 	TxRateMBs     float64 `json:"tx_rate_mbs"`

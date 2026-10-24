@@ -114,6 +114,129 @@ EOF
     fi
 }
 
+# Keep the no-auth guard enabled in the environment. Only the loaded helper's
+# test-mode early return is bypassed, with every privileged boundary mocked.
+check_find_delete_cancellation() {
+    local helper="$1" stage="$2" probe_rc="$3" dry_run="$4"
+    local fixture="$TEST_DIR/find-cancel-$helper-$stage-$probe_rc-$dry_run"
+    mkdir -p "$fixture"
+    touch "$fixture/first.log" "$fixture/middle.db" "$fixture/last.log"
+    run env PROJECT_ROOT="$PROJECT_ROOT" TARGET_DIR="$fixture" \
+        HELPER="$helper" STAGE="$stage" PROBE_RC="$probe_rc" \
+        MOLE_DRY_RUN="$dry_run" MOLE_TEST_NO_AUTH=1 \
+        /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+[[ "$STAGE" != pending ]] || MOLE_CLEAN_CANCEL_STATUS=$PROBE_RC
+should_protect_path() { return 1; }
+is_path_whitelisted() { return 1; }
+record_dry_run_cleanup_target() {
+    [[ "$STAGE" != preview ]] || return "$PROBE_RC"
+    printf 'PREVIEW:%s\n' "$1"
+}
+safe_remove() { printf 'REMOVE:%s\n' "$1"; }
+safe_sudo_remove() { printf 'REMOVE:%s\n' "$1"; }
+get_path_size_kb() {
+    [[ "$STAGE" != size ]] || return "$PROBE_RC"
+    printf '1\n'
+}
+_mole_sqlite_database_in_use() {
+    [[ "$STAGE" == validation ]] || return 1
+    return "$PROBE_RC"
+}
+if [[ "$STAGE" == validation_timeout ]]; then
+    validate_path_for_deletion() {
+        if [[ "$1" == "$TARGET_DIR/middle.db" ]]; then
+            printf 'VALIDATION_TIMEOUT\n'
+            return 124
+        fi
+        return 0
+    }
+fi
+emit_scan() {
+    printf '%s\0%s\0%s\0' "$TARGET_DIR/first.log" "$TARGET_DIR/middle.db" "$TARGET_DIR/last.log"
+    [[ "$STAGE" != scan ]] || return "$PROBE_RC"
+}
+run_with_timeout() {
+    [[ "$2" == find ]] || return 99
+    emit_scan
+}
+if [[ "$HELPER" == sudo ]]; then
+    helper_source=$(declare -f safe_sudo_find_delete)
+    # shellcheck disable=SC2016 # Match the literal production guard.
+    test_guard='[[ "${MOLE_TEST_MODE:-0}" == "1" || "${MOLE_TEST_NO_AUTH:-0}" == "1" ]]'
+    [[ "$helper_source" == *"$test_guard"* ]] || exit 1
+    helper_source=${helper_source/"$test_guard"/false}
+    eval "$helper_source"
+    sudo() { printf 'UNEXPECTED_SUDO\n' >&2; return 99; }
+    _mole_bounded_sudo_until() {
+        [[ "$STAGE" != preflight ]] || return "$PROBE_RC"
+        [[ "$*" != *'test -L'* ]]
+    }
+    _mole_materialize_bounded_sudo_find() { emit_scan > "$1"; }
+    _mole_privileged_path_has_mutable_ancestor() { return 1; }
+    _mole_bounded_sudo() {
+        shift
+        case "$2" in
+            du)
+                [[ "$STAGE" != size ]] || return "$PROBE_RC"
+                printf '1\n'
+                ;;
+            "$STAT_BSD")
+                [[ "$STAGE" != identity ]] || return "$PROBE_RC"
+                printf 'IDENTITY:%s\n' "${*: -1}" >> "$TARGET_DIR/trace"
+                printf '1:2:3\n'
+                ;;
+            xargs)
+                printf 'BATCH\n' >> "$TARGET_DIR/trace"
+                # Acknowledge the mocked batch without executing its command.
+                printf '%s\0%s\0' "$TARGET_DIR/first.log" "$TARGET_DIR/last.log"
+                ;;
+            *) return 99 ;;
+        esac
+    }
+    helper_name=safe_sudo_find_delete
+else
+    helper_name=safe_find_delete
+fi
+: > "$TARGET_DIR/trace"
+rc=0
+"$helper_name" "$TARGET_DIR" '*' 0 f || rc=$?
+printf 'RC=%s STICKY=%s\n' "$rc" "${MOLE_CLEAN_CANCEL_STATUS:-0}"
+cat "$TARGET_DIR/trace"
+printf 'NO_AUTH=%s\n' "$MOLE_TEST_NO_AUTH"
+SCRIPT
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"NO_AUTH=1"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_SUDO"* ]] || return 1
+    [ -f "$fixture/first.log" ] || return 1
+    [ -f "$fixture/middle.db" ] || return 1
+    [ -f "$fixture/last.log" ] || return 1
+    if [[ "$stage" == validation_timeout || ("$stage" == validation && "$probe_rc" -lt 128) ]]; then
+        [[ "$output" == *"RC=0 STICKY=0"* ]] || return 1
+        [[ "$output" == *"BATCH"* ]] || return 1
+        [[ "$output" == *"IDENTITY:$fixture/first.log"* ]] || return 1
+        [[ "$output" == *"IDENTITY:$fixture/last.log"* ]] || return 1
+        [[ "$output" != *"IDENTITY:$fixture/middle.db"* ]] || return 1
+        if [[ "$stage" == validation_timeout ]]; then
+            [[ "$output" == *"VALIDATION_TIMEOUT"* ]] || return 1
+        fi
+    else
+        local expected_sticky=0
+        [[ "$probe_rc" -lt 128 ]] || expected_sticky=$probe_rc
+        [[ "$output" == *"RC=$probe_rc STICKY=$expected_sticky"* ]] || return 1
+        [[ "$output" != *"BATCH"* ]] || return 1
+        [[ "$output" != *"PREVIEW:"* ]] || return 1
+        [[ "$output" != *"REMOVE:"* ]] || return 1
+        [[ "$output" != *"IDENTITY:$fixture/last.log"* ]] || return 1
+        if [[ "$stage" == validation ]]; then
+            [[ "$output" == *"IDENTITY:$fixture/first.log"* ]] || return 1
+        fi
+    fi
+}
+
 @test "validate_path_for_deletion rejects empty path" {
     run /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion ''"
     [ "$status" -eq 1 ]
@@ -1721,6 +1844,86 @@ EOF
 @test "safe_find_delete validates base directory" {
     run /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; safe_find_delete '/nonexistent' '*.tmp' 7 'f' 2>&1"
     [ "$status" -eq 1 ]
+}
+
+@test "safe_find_delete preserves scan signals in real and dry-run cleanup" {
+    local dry_run signal
+    for dry_run in 0 1; do
+        for signal in 130 143; do
+            check_find_delete_cancellation user scan "$signal" "$dry_run" || return 1
+        done
+    done
+}
+
+@test "safe_find_delete preserves dry-run sizing signals" {
+    check_find_delete_cancellation user size 130 1 || return 1
+    check_find_delete_cancellation user size 143 1
+}
+
+@test "safe_find_delete read-only timeouts remain local" {
+    check_find_delete_cancellation user scan 124 0 || return 1
+    check_find_delete_cancellation user size 124 1
+}
+
+@test "safe_sudo_find_delete preserves scan signals in real and dry-run cleanup" {
+    local dry_run signal
+    for dry_run in 0 1; do
+        for signal in 130 143; do
+            check_find_delete_cancellation sudo scan "$signal" "$dry_run" || return 1
+        done
+    done
+}
+
+@test "safe_sudo_find_delete preserves dry-run sizing signals" {
+    check_find_delete_cancellation sudo size 130 1 || return 1
+    check_find_delete_cancellation sudo size 143 1
+}
+
+@test "safe_sudo_find_delete read-only timeouts remain local" {
+    check_find_delete_cancellation sudo scan 124 0 || return 1
+    check_find_delete_cancellation sudo size 124 1
+}
+
+@test "safe_sudo_find_delete stops accumulated batches on validation signals" {
+    check_find_delete_cancellation sudo validation 130 0 || return 1
+    check_find_delete_cancellation sudo validation 143 0
+}
+
+@test "safe_sudo_find_delete ordinary validation refusals remain local" {
+    check_find_delete_cancellation sudo validation 0 0 || return 1
+    check_find_delete_cancellation sudo validation 2 0
+}
+
+@test "safe_sudo_find_delete validation timeout skips only its target" {
+    check_find_delete_cancellation sudo validation_timeout 124 0
+}
+
+@test "safe_find_delete preserves preview validation signals" {
+    check_find_delete_cancellation user preview 130 1 || return 1
+    check_find_delete_cancellation user preview 143 1
+}
+
+@test "safe_sudo_find_delete preserves preview validation signals" {
+    check_find_delete_cancellation sudo preview 130 1 || return 1
+    check_find_delete_cancellation sudo preview 143 1
+}
+
+@test "safe_find_delete stops before work after sticky cancellation" {
+    check_find_delete_cancellation user pending 130 0
+}
+
+@test "safe_sudo_find_delete stops before work after sticky cancellation" {
+    check_find_delete_cancellation sudo pending 130 0
+}
+
+@test "safe_sudo_find_delete preserves preflight signals" {
+    check_find_delete_cancellation sudo preflight 130 0 || return 1
+    check_find_delete_cancellation sudo preflight 143 0
+}
+
+@test "safe_sudo_find_delete preserves identity signals" {
+    check_find_delete_cancellation sudo identity 130 0 || return 1
+    check_find_delete_cancellation sudo identity 143 0
 }
 
 @test "safe_sudo_remove refuses symlink paths" {

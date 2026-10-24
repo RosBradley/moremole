@@ -987,7 +987,11 @@ clean_support_app_data() {
 
     local crash_reporter_dir="$HOME/Library/Application Support/CrashReporter"
     if [[ -d "$crash_reporter_dir" && ! -L "$crash_reporter_dir" ]]; then
-        safe_find_delete "$crash_reporter_dir" "*" "$support_age_days" "f" || true
+        local crash_reporter_rc=0
+        safe_find_delete "$crash_reporter_dir" "*" "$support_age_days" "f" || crash_reporter_rc=$?
+        if mole_rc_signal "$crash_reporter_rc"; then
+            return "$crash_reporter_rc"
+        fi
     fi
 
     # Do not sweep com.apple.idleassetsd here. It stores the aerial screen saver
@@ -1182,7 +1186,11 @@ clean_app_caches() {
     # running can crash Calendar.app until logout/login (#1508). Apple treats
     # this as a manual troubleshooting step, not routine cache maintenance.
     safe_clean ~/Library/Application\ Support/AddressBook/Sources/*/Photos.cache "Address Book photo cache" || true
-    clean_support_app_data
+    local support_rc=0
+    clean_support_app_data || support_rc=$?
+    if mole_rc_signal "$support_rc"; then
+        return "$support_rc"
+    fi
 
     # Stop initial scan indicator before entering per-group scans.
     stop_section_spinner

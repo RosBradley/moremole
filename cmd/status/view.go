@@ -727,6 +727,15 @@ func renderNetworkCard(netStats []NetworkStatus, history NetworkHistory, proxy P
 	totalRx, totalTx := networkTotals(netStats)
 	var primaryIP string
 
+	// The routed physical interface owns the IP line, so Ethernet and USB
+	// adapters show theirs. A routed tunnel's address is not the Mac's LAN IP,
+	// and an unknown route keeps the en0 fallback.
+	for _, n := range netStats {
+		if n.IP != "" && n.defaultRoute && !n.defaultTunnel {
+			primaryIP = n.IP
+			break
+		}
+	}
 	for _, n := range netStats {
 		if primaryIP == "" && n.IP != "" && n.Name == "en0" {
 			primaryIP = n.IP
