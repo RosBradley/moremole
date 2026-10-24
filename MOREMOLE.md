@@ -35,6 +35,7 @@ The installer:
 - links `moremole` and `mm` in `~/.local/bin` to this folder, so updates take effect straight away, and adds `~/.local/bin` to `PATH` in `~/.zshrc` if it isn't there;
 - replaces an older `alias mm=` line in `~/.zshrc`;
 - builds Analyze and Status, which are written in Go, if they were never built (install Go first with `brew install go`); after that, the update rebuilds them whenever they change;
+- offers Tab completion for `moremole` and `mm`, asking before it changes `~/.zshrc` (later: `moremole completion`);
 - offers to remove the official Mole if Homebrew installed it, with `brew uninstall mole`, which keeps `~/.config/mole`. Don't use Mole's own `mo remove` for this: it also moves `~/.config/mole`, including your MoreMole commands, to the Trash.
 
 It's safe to run again. To undo it, delete `~/.local/bin/moremole` and `~/.local/bin/mm`.
@@ -62,7 +63,8 @@ It's safe to run again. To undo it, delete `~/.local/bin/moremole` and `~/.local
 ```
 
 - Move with the arrow keys and press Enter. Preview shows what a command would do without doing it.
-- 1 to 5 still start Clean, Uninstall, Optimize, Analyze and Status directly. M, V, T, U and Q work as before.
+- 1 to 5 still start Clean, Uninstall, Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter; T, U and Q work as before.
+- The help screen and update notices name commands `moremole ...` instead of `mo ...`.
 - When a command finishes, press Enter to come back to the menu. Analyze and Status come back as soon as you quit them. Ctrl-C stops the command and also comes back.
 - Update from Mole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version.
 - A window too short for every row scrolls with the arrow keys, and says so under the list.
