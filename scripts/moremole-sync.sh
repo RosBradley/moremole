@@ -1,7 +1,8 @@
 #!/bin/bash
 # moremole: bring in the latest Mole changes from tw93/Mole.
 #
-# Updates main to match upstream (fast-forward only), merges main into the
+# First brings down any moremole changes already on GitHub (origin), then
+# updates main to match upstream (fast-forward only), merges main into the
 # moremole branch, and pushes both to origin. Stops before changing anything
 # if there are uncommitted changes or if main has commits upstream doesn't.
 #
@@ -15,6 +16,17 @@ readonly UPSTREAM_REMOTE="upstream"
 
 die() {
     printf 'Stopped: %s\n' "$1" >&2
+    exit 1
+}
+
+# Merge $1 into the current branch, or stop at a conflict and list the files
+# to look at; $2 says where the other changes came from.
+merge_or_stop() {
+    git merge --no-edit "$1" && return 0
+    printf '\nThe merge stopped on a conflict: %s changed the same lines as this folder.\n' "$2" >&2
+    printf 'Files to look at:\n' >&2
+    git diff --name-only --diff-filter=U | sed 's/^/    /' >&2
+    printf 'To undo the merge and get back to where you were: git merge --abort\n' >&2
     exit 1
 }
 
@@ -37,7 +49,19 @@ main() {
     [[ -z "$(git status --porcelain --untracked-files=no)" ]] ||
         die "there are uncommitted changes. Commit them first (git status shows them)."
 
-    local old_main
+    local old_head old_main
+    old_head="$(git rev-parse HEAD)"
+
+    # Changes pushed to GitHub from elsewhere come down first, or the push at
+    # the end would be refused.
+    printf 'Fetching your GitHub copy...\n'
+    git fetch origin "$PERSONAL_BRANCH" ||
+        die "could not reach origin (see the message above). Check your internet connection and try again."
+    if ! git merge-base --is-ancestor "origin/$PERSONAL_BRANCH" HEAD; then
+        printf 'Bringing down the changes on GitHub first.\n'
+        merge_or_stop "origin/$PERSONAL_BRANCH" "your GitHub copy"
+    fi
+
     old_main="$(git rev-parse "$MIRROR_BRANCH")"
 
     printf 'Fetching %s...\n' "$UPSTREAM_REMOTE"
@@ -67,18 +91,14 @@ main() {
 
     if git merge-base --is-ancestor "$MIRROR_BRANCH" HEAD; then
         printf '%s already has everything from %s.\n' "$PERSONAL_BRANCH" "$MIRROR_BRANCH"
-    elif ! git merge --no-edit "$MIRROR_BRANCH"; then
-        printf '\nThe merge stopped on a conflict: Mole changed the same lines as moremole.\n' >&2
-        printf 'Files to look at:\n' >&2
-        git diff --name-only --diff-filter=U | sed 's/^/    /' >&2
-        printf 'To undo the merge and get back to where you were: git merge --abort\n' >&2
-        exit 1
+    else
+        merge_or_stop "$MIRROR_BRANCH" "Mole"
     fi
 
     git push origin "$PERSONAL_BRANCH"
 
-    if [[ "$old_main" != "$new_main" ]] &&
-        [[ -n "$(git diff --name-only "$old_main" "$new_main" -- cmd go.mod go.sum)" ]]; then
+    # Go changes can come from Mole or from GitHub; either needs a rebuild.
+    if [[ -n "$(git diff --name-only "$old_head" HEAD -- cmd go.mod go.sum)" ]]; then
         printf '\nThe Go parts (analyze, status) changed. Rebuild them with: make build\n'
     fi
 
