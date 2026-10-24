@@ -63,9 +63,9 @@ It's safe to run again. To undo it, delete `~/.local/bin/moremole` and `~/.local
 ```
 
 - Move with the arrow keys and press Enter. Preview shows what a command would do without doing it.
-- 1 to 5 still start Clean, Uninstall, Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter; T, U and Q work as before.
+- 1 to 5 still start Clean, Uninstall, Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter or Q; T, U and Q work as before.
 - The help screen and update notices name commands `moremole ...` instead of `mo ...`.
-- When a command finishes, press Enter to come back to the menu. Analyze and Status come back as soon as you quit them. Ctrl-C stops the command and also comes back.
+- When a command finishes, press Enter or Q to come back to the menu. Analyze and Status come back as soon as you quit them. Ctrl-C stops the command and also comes back.
 - Update from Mole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version.
 - A window too short for every row scrolls with the arrow keys, and says so under the list.
 
@@ -86,7 +86,7 @@ They're saved in `~/.config/mole/my_commands`, one per line as name, a Tab, then
 
 - The bars stretch to fill the window; make the window wider for longer bars.
 - Every CPU core is listed. **C** cycles through 2, 4, 8 and all cores and remembers your choice; a window too short for all of them shows fewer.
-- The GPU card shows total GPU use, the chip and its GPU core count. macOS reports GPU use for the GPU as a whole, not for each GPU core.
+- The GPU card shows total GPU use, updated every second like CPU use, plus the chip and its GPU core count. macOS reports GPU use for the GPU as a whole, not for each GPU core.
 
 If you pull changes with `git pull` instead of the update, rebuild with `make build` when Analyze or Status changed.
 
