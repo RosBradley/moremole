@@ -105,26 +105,28 @@ main() {
     printf '\nDone.\n'
 }
 
-# Whether Analyze or Status is missing or older than any of its Go source.
+# Whether Analyze, Status or the Software updates helper is missing or older
+# than any of its Go source.
 # Comparing file times catches Go changes from any source: this update, a
 # git pull, or an edit, and git writes every file it changes with the
 # current time.
 go_parts_stale() {
     local binary
-    for binary in bin/analyze-go bin/status-go; do
+    for binary in bin/analyze-go bin/status-go bin/moremole-updates-go; do
         [[ -x "$binary" ]] || return 0
         [[ -z "$(find cmd go.mod go.sum -newer "$binary" -print -quit 2> /dev/null)" ]] || return 0
     done
     return 1
 }
 
-# Rebuild Analyze and Status. The update itself has already finished, so a
-# failed build says how to retry instead of undoing anything.
+# Rebuild the Go parts: Analyze, Status and Software updates. The update
+# itself has already finished, so a failed build says how to retry instead
+# of undoing anything.
 rebuild_go_parts() {
     if ! command -v go > /dev/null 2>&1; then
-        die "Analyze and Status need rebuilding, but Go is not installed. Install it with: brew install go, then run: make build"
+        die "Analyze, Status and Software updates need rebuilding, but Go is not installed. Install it with: brew install go, then run: make build"
     fi
-    printf '\nRebuilding Analyze and Status...\n'
+    printf '\nRebuilding Analyze, Status and Software updates...\n'
     make build ||
         die "the rebuild failed (see the message above). The update itself is done; fix the problem, then run: make build"
 }

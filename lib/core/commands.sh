@@ -18,3 +18,6 @@ MOLE_COMMANDS=(
     "help:Show help"
     "version:Show version"
 )
+
+# MoreMole: fork-only commands.
+source "$(dirname "${BASH_SOURCE[0]}")/../moremole/commands.sh"

@@ -30,6 +30,7 @@ readonly MOREMOLE_BUILTIN_ROWS=(
     "Slim Intel code|mole|slim|Remove Intel code from universal apps;Preview|mole|slim --dry-run|Show what Slim would remove, without removing anything"
     "Touch ID|mole|touchid|Use Touch ID for sudo;Preview|mole|touchid enable --dry-run|Show what Touch ID setup would change, without changing it"
     "Shell completion|mole|completion|Set up Tab completion for moremole and mm;Preview|mole|completion --dry-run|Show the shell setup edits, without making them"
+    "Software updates|mole|moremole-updates|Update apps, tools and macOS;Preview|mole|moremole-updates --dry-run|List available updates, without installing anything"
     "Update MoreMole|update||Get the latest MoreMole and Mole changes, and rebuild if needed"
 )
 readonly MOREMOLE_SECTION_LABEL="My commands"

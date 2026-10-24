@@ -331,6 +331,10 @@ main() {
         "slim")
             run_mole_command "$SCRIPT_DIR/bin/slim.sh" "${args[@]:1}"
             ;;
+        # MoreMole: Software updates.
+        "updates")
+            run_mole_command "$SCRIPT_DIR/bin/moremole-updates.sh" "${args[@]:1}"
+            ;;
         "touchid")
             exec "$SCRIPT_DIR/bin/touchid.sh" "${args[@]:1}"
             ;;
