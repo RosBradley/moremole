@@ -28,7 +28,7 @@ alias mm="$HOME/Developer/moremole/mole"
 
 Type `mm` to open the menu. The official Mole, if installed, stays available as `mo`.
 
-Analyze and Status are written in Go, so they need building once, and again when Mole changes them (the update tells you when):
+Analyze and Status are written in Go, so they need building once. After that, the update rebuilds them whenever they change:
 
 ```sh
 brew install go
@@ -83,7 +83,7 @@ They're saved in `~/.config/mole/my_commands`, one per line as name, a Tab, then
 - Every CPU core is listed. **C** cycles through 2, 4, 8 and all cores and remembers your choice; a window too short for all of them shows fewer.
 - The GPU card shows total GPU use, the chip and its GPU core count. macOS reports GPU use for the GPU as a whole, not for each GPU core.
 
-After pulling these changes, rebuild Status once with `make build`.
+If you pull changes with `git pull` instead of the update, rebuild with `make build` when Analyze or Status changed.
 
 ## Getting Mole's updates
 
@@ -93,4 +93,4 @@ Choose **Update from Mole** in the menu, press U when an update notice shows, or
 bash scripts/moremole-sync.sh
 ```
 
-It first brings down any moremole changes already on GitHub, then copies Mole's latest changes into `main`, merges them into the `moremole` branch, and pushes both to GitHub. It stops and says what to do if you have uncommitted changes, are on another branch, or if Mole changed the same lines as moremole.
+It first brings down any moremole changes already on GitHub, then copies Mole's latest changes into `main`, merges them into the `moremole` branch, and pushes both to GitHub. When Analyze or Status changed, it rebuilds them (`make build`). It stops and says what to do if you have uncommitted changes, are on another branch, or if Mole changed the same lines as moremole.
