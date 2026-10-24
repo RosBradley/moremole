@@ -2,6 +2,8 @@
 
 moremole is a personal fork of [Mole](https://github.com/tw93/Mole). It keeps everything Mole does and changes these things:
 
+- **The banner says MoreMole** and points to this repository, on the menu and the help screen.
+
 - **The main menu lists every command** from Mole's More screen (M), not just the first five. Each command has its own row, with its preview (dry-run) and other variants beside it, and a line under the menu describes the highlighted item.
 - **You can add your own commands to the menu,** and edit or remove them, right in the menu. They get a section of their own.
 - **Commands return to the menu** when they finish.
