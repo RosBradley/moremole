@@ -3,7 +3,7 @@
 moremole is a personal fork of [Mole](https://github.com/tw93/Mole) by tw93, modified since October 2026. Mole and moremole are licensed under GPL-3.0 (see `LICENSE`); moremole is not affiliated with or endorsed by the Mole project. It keeps everything Mole does and changes these things:
 
 - **The banner says MoreMole** and points to this repository, on the menu and the help screen. Its tagline keeps Mole's line, "Deep clean and optimize your Mac.", and adds "Manage, update and remove apps." The version screen (V) credits Mole and shows the moremole commit that is running.
-- **The main menu lists every command** from Mole's More screen (M), not just the first five. Each command has its own row, with its preview (dry-run) and other variants beside it, and a line under the menu describes the highlighted item.
+- **The main menu lists every command** from Mole's More screen (M), not just the first five. Each command has its own row, with its preview (dry-run) and other variants beside it, and a bar at the bottom of the window describes the highlighted item and lists the keys.
 - **You can add your own commands to the menu,** and edit or remove them, right in the menu. They get a section of their own.
 - **Commands run inside a MoreMole screen:** the title and the command's summary stay at the top and a bar at the bottom says it's running, while its output scrolls between them, like the menu. When it finishes, the bar says so and shows the keys; you scroll back through everything it printed, search it with /, and open Clean's file list with F. A cancelled command returns to the menu straight away.
 - **Status fills the window:** its bars stretch with the window, it lists every CPU core, and it has a GPU card.
@@ -26,7 +26,7 @@ The moremole changes live in their own files, so Mole's updates merge cleanly:
 | `scripts/moremole-sync.sh` | Brings in Mole's latest changes |
 | `tests/moremole_*.bats`, `cmd/status/moremole_test.go`, `cmd/moremole-updates/*_test.go`, `cmd/moremole-view/*_test.go` | Tests for the above |
 | `mole`, `Makefile`, `lib/core/commands.sh`, `lib/core/common.sh`, `cmd/status/*.go` | A few marked lines (`moremole`) that hook the above in |
-| `lib/ui/menu_paginated.sh`, `lib/ui/app_selector.sh`, `bin/slim.sh`, `bin/installer.sh`, `bin/optimize.sh`, `lib/clean/project.sh` | Marked lines (`MoreMole`) for the search line, A–Z first, Optimize's names and Purge's find showing what you type; `tests/slim.bats` and `tests/uninstall_menu.bats` each have one test changed to match |
+| `lib/ui/menu_paginated.sh`, `lib/ui/app_selector.sh`, `bin/slim.sh`, `bin/installer.sh`, `bin/optimize.sh`, `lib/clean/project.sh` | Marked lines (`MoreMole`) for the search line, A–Z first, Optimize's names, and Purge's find showing what you type and starting with nothing selected; `tests/slim.bats`, `tests/uninstall_menu.bats`, `tests/purge.bats` and `tests/purge_menu_pty.py` have the tests that relied on the old behavior changed to match |
 | Mole's commands: `bin/clean.sh`, `bin/completion.sh`, `bin/installer.sh`, `bin/purge.sh`, `bin/slim.sh`, `bin/touchid.sh`, `bin/uninstall.sh`, `lib/uninstall/batch.sh`, `lib/manage/whitelist.sh` | One `moremole_note_cancel` line at each place the user cancels (`tests/moremole_cancel.bats` checks they're all there) |
 
 ## Running it
@@ -84,6 +84,7 @@ Every command works from the command line and in scripts as in Mole: same comman
 ```
 
 - Move with the arrow keys and press Enter. Preview shows what a command would do without doing it.
+- A bar at the bottom of the window, under a divider, describes the highlighted item and lists the keys, as on the command screen.
 - Software removal is Mole's Uninstall, next to Software updates.
 - 1 to 5 still start Clean, Software removal (Uninstall), Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter or Q; T, U and Q work as before.
 - The help screen and update notices name commands `moremole ...` instead of `mo ...`.
@@ -109,6 +110,7 @@ The lists you choose items from (Software removal, Slim Intel code, Installer fi
 - The arrow keys take you from the search line into the narrowed list, so Space selects and Enter saves. Enter on the search line just finishes the search.
 - **Esc** or **Q** clears an applied search; Q again goes back. Selections stay when the search changes, and Enter never saves a selection the search is hiding: it clears the search first, so you see everything you picked.
 - Lists open A–Z. Where the list knows sizes or dates, **S** switches to largest first, then oldest first, then back to A–Z, and **O** flips the order. Installer files sorts by file name, size and date modified; Software removal by name, size and last used.
+- Nothing starts selected: you pick, or press **A** to select everything. Mole's Purge selected the artifacts older than 7 days for you; in moremole its list starts empty too, and the age column still shows which are old. Two lists keep their ticks, because they show what is already protected rather than a suggestion: Clean's Protected caches and Optimize's Protected items. Software removal ticks personal data only when you ask for it with `--with-data`.
 - Purge keeps its own list, grouped by project with the biggest first. **/** asks for a project or folder name; type it and press Enter to jump to the first match, then **n** for the next one.
 
 ## Your own commands
@@ -150,6 +152,7 @@ It checks Homebrew, the App Store, macOS and your other apps, then shows one A�
 | macOS, "needs a restart" | opens Software Update in System Settings |
 
 - A confirm screen lists your picks and warns about what they do (apps quit, your copy is replaced, a password is needed). Enter installs; any other key cancels.
+- **The app moremole is running in is never updated from moremole.** Updating your terminal (iTerm2, for one) from inside it can end the run: Homebrew may quit the app midway, which stops moremole and the update with it, and an app's own updater restarts it. moremole recognizes that app (from the app that started your shell, `TERM_PROGRAM`, and the parent processes), marks its row "runs MoreMole", and if you pick it, leaves it out: the confirm screen and the summary say to use the app's own Check for Updates, or to update it from another terminal (Terminal, say). History records it as skipped.
 - Each update runs with its own output on screen, then a summary says what updated and what didn't, and why. Each one is recorded in History.
 - Checking can take a minute: Homebrew refreshes its version list first, and macOS is slowest to answer.
 - No Homebrew: Homebrew apps and tools are skipped, with a note. No `mas` (the App Store tool): it offers to install it with Homebrew.
