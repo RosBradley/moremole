@@ -76,8 +76,8 @@ Every command works from the command line and in scripts as in Mole: same comman
   Software updates       Preview
   Software removal       Preview
   Update MoreMole
-  ── My commands ──
-  + Add a command
+───────────────────────── My commands ─────────────────────────
+  Add a command
   Flush DNS              Edit               Remove
 
   Free up disk space
@@ -117,7 +117,7 @@ The lists you choose items from (Software removal, Slim Intel code, Installer fi
 
 They're at the bottom of the menu:
 
-- **+ Add a command** asks for the name the menu shows, then the command to run. Leave the name empty to cancel.
+- **Add a command** asks for the name the menu shows, then the command to run. Leave the name empty to cancel.
 - **Enter on a command's name** runs it.
 - **Edit**, beside it, changes the name or the command. Press Enter to keep what's shown in brackets.
 - **Remove** takes it off the menu, after you confirm.
