@@ -54,7 +54,7 @@ Mole is a terminal-first macOS maintenance toolkit. Its core job is to help powe
 
 ### What Mole Should Not Do
 
-- Do not add broad system modification, privacy reset, package management, app bundle patching, or device-management features just because they are technically possible.
+- Do not add broad system modification, privacy reset, package management, app bundle patching, or device-management features just because they are technically possible. Third-party app updates, including package-manager upgrade wrappers, stay outside the CLI; `mo update` updates Mole itself. Keep app upgrades out of `mo optimize` (maintainer decision 2026-10-25; rationale in `SYNC.md`).
 - Do not remove or rewrite third-party app bundle contents, signed resources, user documents, credentials, sessions, active databases, or active developer-tool state. The one named exception is `mo slim` removing Intel slices from apps the user owns (maintainer decision 2026-10-19); its scope and verification contract are in `.claude/rules/slim.md` and do not widen by analogy.
 - Do not add background agents, persistent monitoring, notifications, schedulers, menu bar behavior, or GUI-like state unless explicitly requested and justified as CLI scope.
 - Do not broaden leftover matching from exact app or bundle evidence into vendor-wide, TeamID-prefix, generic-name, or fallback wildcard deletion.
