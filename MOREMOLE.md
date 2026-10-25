@@ -7,7 +7,9 @@ moremole is a personal fork of [Mole](https://github.com/tw93/Mole) by tw93, mod
 - **You can add your own commands to the menu,** and edit or remove them, right in the menu. They get a section of their own.
 - **Commands run inside a MoreMole screen:** the title, the command's summary and the keys stay at the top while its output scrolls below them, like the menu. When it finishes its summary stays pinned at the top and you scroll back through everything else it printed, with Clean's file list one key away. A cancelled command returns to the menu straight away.
 - **Status fills the window:** its bars stretch with the window, it lists every CPU core, and it has a GPU card.
-- **Software updates** finds updates for Homebrew apps and tools, App Store apps and macOS, and installs the ones you pick.
+- **Software updates** finds updates for Homebrew apps and tools, App Store apps, macOS and apps with their own updater, and installs the ones you pick.
+- **Pick lists have a search line and open A–Z:** type to narrow the list, and sort by name, size or date. Installer files uses the same list, so it gains both.
+- **Optimize names what it applied,** or in a preview what it would apply, in the summary at the top.
 - **Update brings in Mole's latest changes and keeps moremole's.** Mole's own update would install the official release over this folder and erase them.
 
 The moremole changes live in their own files, so Mole's updates merge cleanly:
@@ -19,10 +21,12 @@ The moremole changes live in their own files, so Mole's updates merge cleanly:
 | `bin/moremole-updates.sh`, `cmd/moremole-updates/` | Software updates: the screen, and the Go helper that finds updates |
 | `lib/moremole/commands.sh` | Adds `updates` to help and Tab completion |
 | `lib/moremole/cancel.sh` | Lets a cancelled command tell the menu to come straight back |
+| `lib/moremole/lists.sh` | Puts Installer files on the shared pick list |
 | `cmd/moremole-view/` | The command screen: runs a command inside the fixed frame, then shows its results |
 | `scripts/moremole-sync.sh` | Brings in Mole's latest changes |
 | `tests/moremole_*.bats`, `cmd/status/moremole_test.go`, `cmd/moremole-updates/*_test.go`, `cmd/moremole-view/*_test.go` | Tests for the above |
 | `mole`, `Makefile`, `lib/core/commands.sh`, `lib/core/common.sh`, `cmd/status/*.go` | A few marked lines (`moremole`) that hook the above in |
+| `lib/ui/menu_paginated.sh`, `lib/ui/app_selector.sh`, `bin/slim.sh`, `bin/installer.sh`, `bin/optimize.sh` | Marked lines (`MoreMole`) for the search line, A–Z first and Optimize's names; `tests/slim.bats` and `tests/uninstall_menu.bats` each have one test changed to match |
 | Mole's commands: `bin/clean.sh`, `bin/completion.sh`, `bin/installer.sh`, `bin/purge.sh`, `bin/slim.sh`, `bin/touchid.sh`, `bin/uninstall.sh`, `lib/uninstall/batch.sh`, `lib/manage/whitelist.sh` | One `moremole_note_cancel` line at each place the user cancels (`tests/moremole_cancel.bats` checks they're all there) |
 
 ## Running it
@@ -95,6 +99,16 @@ Every command works from the command line and in scripts as in Mole: same comman
 - Update MoreMole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version.
 - A window too short for every row scrolls with the arrow keys, and says so under the list.
 
+## Pick lists
+
+The lists you choose items from (Software removal, Slim Intel code, Installer files, Software updates, and Software removal's personal data) work the same way:
+
+- A search line sits under the title. Press **/** and type: the list narrows as you type, matching anywhere in the name, upper or lower case.
+- The arrow keys take you from the search line into the narrowed list, so Space selects and Enter saves. Enter on the search line just finishes the search.
+- **Esc** or **Q** clears an applied search; Q again goes back. Selections stay when the search changes, and Enter never saves a selection the search is hiding: it clears the search first, so you see everything you picked.
+- Lists open A–Z. Where the list knows sizes or dates, **S** switches to largest first, then oldest first, then back to A–Z, and **O** flips the order. Installer files sorts by file name, size and date modified; Software removal by name, size and last used.
+- Purge keeps its own list, grouped by project with the biggest first, with **/** to find a project or folder and **n** for the next match.
+
 ## Your own commands
 
 They're at the bottom of the menu:
@@ -121,23 +135,25 @@ If you pull changes with `git pull`, the next update rebuilds the Go parts if ne
 
 Choose **Software updates** in the menu, or run `moremole updates`. **Preview** (`moremole updates --dry-run`) only lists what's available.
 
-It checks four places, then shows one list you pick from with the arrow keys and Space (A selects all), Enter to continue:
+It checks Homebrew, the App Store, macOS and your other apps, then shows one A–Z list with each row's source. Nothing starts selected: pick with the arrow keys and Space (A selects all, / searches), Enter to continue.
 
-| Source | Starts selected | Installs with |
-|---|---|---|
-| Homebrew apps | yes | `brew upgrade --cask --greedy` |
-| Homebrew apps that update themselves | no, marked "updates itself" | `brew upgrade --cask --greedy` |
-| Move to Homebrew: apps you installed yourself that Homebrew has a newer version of | no | `brew install --cask --force`, which replaces your copy; settings stay |
-| App Store apps | yes | `mas upgrade`, which may ask for your password |
-| Command-line tools (Homebrew formulae) | no | `brew upgrade --formula` |
-| macOS updates | no | `softwareupdate --install`, after your password |
-| macOS updates that restart the Mac | no | opens Software Update in System Settings |
+| Source (as the list shows it) | Installs with |
+|---|---|
+| Homebrew: Homebrew apps; "updates itself" marks apps that also update on their own | `brew upgrade --cask --greedy` |
+| Move to Homebrew: apps you installed yourself that Homebrew has a newer version of | `brew install --cask --force`, which replaces your copy; settings stay |
+| Own updater: apps you installed yourself whose own updater (Sparkle) lists a newer version | opens the app, whose updater installs it |
+| App Store | `mas upgrade`, which may ask for your password |
+| Command-line tool (Homebrew formulae) | `brew upgrade --formula` |
+| macOS | `softwareupdate --install`, after your password |
+| macOS, "needs a restart" | opens Software Update in System Settings |
 
 - A confirm screen lists your picks and warns about what they do (apps quit, your copy is replaced, a password is needed). Enter installs; any other key cancels.
 - Each update runs with its own output on screen, then a summary says what updated and what didn't, and why. Each one is recorded in History.
 - Checking can take a minute: Homebrew refreshes its version list first, and macOS is slowest to answer.
 - No Homebrew: Homebrew apps and tools are skipped, with a note. No `mas` (the App Store tool): it offers to install it with Homebrew.
-- Pinned formulae (`brew pin`) are left out. Apps that report no version number (`latest`) start unselected, since they always reinstall.
+- Pinned formulae (`brew pin`) are left out. Apps that report no version number (`latest`) are marked "always reinstalls".
+- "older version, Homebrew's choice" marks an update to a lower version number: Homebrew moved that formula to another line on purpose (openssl@3 went from 3.6 to its long-term 3.5 line).
+- "Own updater" reads the update feed the app names in its Info.plist (`SUFeedURL`), skipping beta channels and versions that need a newer macOS. Installing stays with the app, which checks the download's signature: the apps open after the other updates, and the summary names them. If an app doesn't offer the update, choose Check for Updates in its menu. Apps Homebrew manages, App Store and Apple apps, and apps offered for Move to Homebrew aren't checked this way.
 - An app joins "Move to Homebrew" only when exactly one Homebrew app matches its name, that app doesn't update itself, and its version is clearly newer. App Store and Apple apps never do.
 - Software updates is a moremole addition. Mole leaves package management out on purpose, so this part won't be offered to Mole.
 
