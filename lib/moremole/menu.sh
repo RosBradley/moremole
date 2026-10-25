@@ -23,7 +23,7 @@ readonly MOREMOLE_BUILTIN_ROWS=(
     "Optimize|mole|optimize|Refresh caches and services;Preview|mole|optimize --dry-run|Show what Optimize would do, without changing anything;Protected items|mole|optimize --whitelist|Choose items that Optimize must leave alone"
     "Analyze|mole|analyze|Explore disk usage;External drives|mole|analyze /Volumes|Explore disk usage on external drives only"
     "Status|mole|status|Monitor system health"
-    "History|mole|history|Review cleanup activity;Export|mole|history --json|Print cleanup history as JSON"
+    "History|mole|history --limit 200|Review cleanup activity, the last 200 entries;Export|mole|history --json|Print cleanup history as JSON"
     "Purge|mole|purge|Remove old project build files;Preview|mole|purge --dry-run|Show what Purge would remove, without removing anything;Choose folders|mole|purge --paths|Choose the folders Purge scans for projects"
     "Installer files|mole|installer|Find and remove installer files;Preview|mole|installer --dry-run|Show what would be removed, without removing anything"
     "Slim Intel code|mole|slim|Remove Intel code from universal apps;Preview|mole|slim --dry-run|Show what Slim would remove, without removing anything"

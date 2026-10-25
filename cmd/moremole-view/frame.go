@@ -7,27 +7,74 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The command screen keeps everything that does not scroll at the top: the
-// title, the command's summary, the keys and a divider. The output scrolls
-// below them.
+// The command screen keeps what does not scroll at the edges: the title and
+// the command's summary at the top, and at the bottom a bar that says what
+// is happening and which keys work, where the eyes are while output streams
+// in. The output scrolls between them.
 
 // spinnerFrames match Mole's own spinner (lib/core/ui.sh, cmd/analyze).
 var spinnerFrames = []string{"⠖", "⠲", "⠴", "⠦"}
 
-// liveKeys is the key row while the command runs.
-const liveKeys = "Keys go to the command  |  Ctrl-C Stop"
+// barSeparator joins the parts of the bar.
+const barSeparator = "  |  "
 
 // topRows returns the rows above the output: the title with a note on the
-// right, the summary rows, the key row and a divider.
-func topRows(title, note string, summary []string, keys string, width int) []string {
+// right, the summary rows and a divider.
+func topRows(title, note string, summary []string, width int) []string {
 	rows := []string{header(title, note, width)}
 	for _, s := range summary {
 		rows = append(rows, ansi.Truncate(s, width, "…"))
 	}
-	rows = append(rows,
-		grayStyle+ansi.Truncate(keys, width, "…")+resetStyle,
-		grayStyle+strings.Repeat("─", width)+resetStyle)
-	return rows
+	return append(rows, divider(width))
+}
+
+// bottomRows returns the rows below the output: a divider and the bar.
+func bottomRows(bar string, width int) []string {
+	return []string{divider(width), ansi.Truncate(bar, width, "…")}
+}
+
+func divider(width int) string {
+	return grayStyle + strings.Repeat("─", width) + resetStyle
+}
+
+// fitBar joins the status and the keys, dropping the optional keys, in
+// order, until the bar fits the width; then it shortens the status, so the
+// keys that are left stay whole. The keys show in gray.
+func fitBar(status string, keys, optional []string, width int) string {
+	for {
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, grayStyle+k+resetStyle)
+		}
+		keyText := strings.Join(parts, barSeparator)
+		if status == "" {
+			if ansi.StringWidth(keyText) <= width || len(optional) == 0 {
+				return keyText
+			}
+		} else {
+			bar := status + barSeparator + keyText
+			if keyText == "" {
+				bar = status
+			}
+			if ansi.StringWidth(bar) <= width {
+				return bar
+			}
+			if len(optional) == 0 {
+				room := width - ansi.StringWidth(keyText) - len(barSeparator)
+				if keyText == "" || room < 4 {
+					return bar
+				}
+				return ansi.Truncate(status, room, "…") + resetStyle + barSeparator + keyText
+			}
+		}
+		keys = slices.DeleteFunc(slices.Clone(keys), func(k string) bool { return k == optional[0] })
+		optional = optional[1:]
+	}
+}
+
+// liveBar is the bar while the command runs.
+func liveBar(spin string, width int) string {
+	return fitBar(spin+" Running", []string{"Keys go to the command", "Ctrl-C Stop"}, []string{"Keys go to the command"}, width)
 }
 
 // header is the title row: the title, and a gray note on the right.

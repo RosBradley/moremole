@@ -86,7 +86,7 @@ func TestPaneShowsOutputInsideTheFrameAndPassesKeys(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", want, got)
 		}
 	}
-	// The title row and the key row frame the command's screen.
+	// The title row and the bar frame the command's screen.
 	for _, want := range []string{"Clean · Preview", "Running", "Ctrl-C Stop", "hello Brad"} {
 		if !strings.Contains(drawn, want) {
 			t.Errorf("screen lacks %q: %q", want, drawn)
@@ -105,33 +105,40 @@ func TestPaneCtrlCStopsTheCommand(t *testing.T) {
 	}
 }
 
-func TestPaneKeepsTheSummaryAndKeysAtTheTop(t *testing.T) {
+func TestPaneKeepsTheSummaryAtTheTopAndTheBarAtTheBottom(t *testing.T) {
 	p := &pane{title: "Clean · Preview", labels: []string{"Potential space", "Items", "Categories"}}
-	if got := p.rowsFor(24); got != 24-4 {
-		t.Fatalf("command rows %d, want 20 (title, summary, keys and divider above)", got)
+	if got := p.rowsFor(24); got != 24-5 {
+		t.Fatalf("command rows %d, want 19 (title, summary and divider above, divider and bar below)", got)
 	}
 	top := p.top(70)
 	want := []string{
 		"Clean · Preview",
 		"Potential space: ⠖ | Items: ⠖ | Categories: ⠖",
-		liveKeys,
 		strings.Repeat("─", 70),
 	}
 	for i, w := range want {
-		if got := strings.TrimRight(ansi.Strip(top[i]), " "); !strings.HasPrefix(got, w) {
-			t.Errorf("row %d = %q, want %q", i, got, w)
+		if got := strings.TrimRight(ansi.Strip(top[i]), " "); got != w {
+			t.Errorf("top row %d = %q, want %q", i, got, w)
 		}
 	}
-	if !strings.HasSuffix(ansi.Strip(top[0]), "⠖ Running") {
-		t.Errorf("title row %q", ansi.Strip(top[0]))
+	bottom := p.bottom(70)
+	if got := ansi.Strip(bottom[0]); got != strings.Repeat("─", 70) {
+		t.Errorf("divider %q", got)
 	}
-	// The spinner turns.
+	if got := ansi.Strip(bottom[1]); got != "⠖ Running  |  Keys go to the command  |  Ctrl-C Stop" {
+		t.Errorf("bar %q", got)
+	}
+	// The spinner turns, in the summary and in the bar.
 	p.ticks += spinEvery
-	if got := ansi.Strip(p.top(70)[1]); !strings.Contains(got, "⠲") {
+	if got := ansi.Strip(p.top(70)[1]) + ansi.Strip(p.bottom(70)[1]); strings.Count(got, "⠲") != 4 {
 		t.Errorf("spinner did not turn: %q", got)
 	}
+	// A narrow bar keeps the spinner and Ctrl-C.
+	if got := ansi.Strip(p.bottom(30)[1]); got != "⠲ Running  |  Ctrl-C Stop" {
+		t.Errorf("narrow bar %q", got)
+	}
 	// Without labels there is no summary row.
-	if got := (&pane{title: "History"}).rowsFor(24); got != 21 {
+	if got := (&pane{title: "History"}).rowsFor(24); got != 20 {
 		t.Errorf("command rows without a summary: %d", got)
 	}
 }
@@ -149,8 +156,8 @@ func TestPaneDrawsOnlyRowsThatChanged(t *testing.T) {
 	p.term.write([]byte("new\r\n"))
 	out.Reset()
 	p.draw()
-	// The command's first row sits under the title, the keys and the divider.
-	if !strings.Contains(out.String(), "\x1b[4;1H") || !strings.Contains(out.String(), "new") {
+	// The command's first row sits under the title and the divider.
+	if !strings.Contains(out.String(), "\x1b[3;1H") || !strings.Contains(out.String(), "new") {
 		t.Errorf("the changed row was not drawn: %q", out.String())
 	}
 }

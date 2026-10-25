@@ -26,11 +26,14 @@ func press(m model, keys ...string) model {
 	for _, k := range keys {
 		var msg tea.KeyMsg
 		switch k {
-		case "up", "down", "pgup", "pgdown", "home", "end", "enter", "esc", "ctrl+c":
+		case "up", "down", "pgup", "pgdown", "home", "end", "enter", "esc", "ctrl+c", "backspace":
 			msg = tea.KeyMsg{Type: map[string]tea.KeyType{
 				"up": tea.KeyUp, "down": tea.KeyDown, "pgup": tea.KeyPgUp, "pgdown": tea.KeyPgDown,
 				"home": tea.KeyHome, "end": tea.KeyEnd, "enter": tea.KeyEnter, "esc": tea.KeyEsc, "ctrl+c": tea.KeyCtrlC,
+				"backspace": tea.KeyBackspace,
 			}[k]}
+		case " ":
+			msg = tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 		default:
 			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
 		}
@@ -54,24 +57,28 @@ func quits(m model, key string) bool {
 }
 
 func TestViewOpensAtTheEndAndScrolls(t *testing.T) {
-	m := newModel("Clean · Preview", numbered(100), "", nil, 40, 12)
-	// 12 rows: the title, the keys and a divider at the top, then 9 lines.
-	if m.offset[outputPage] != 91 {
-		t.Fatalf("starts at %d, want the last page (91)", m.offset[outputPage])
+	m := newModel("Clean · Preview", numbered(100), 0, "", nil, 40, 12)
+	// 12 rows: the title and a divider at the top, 8 lines, then a divider
+	// and the bar at the bottom.
+	if m.offset[outputPage] != 92 {
+		t.Fatalf("starts at %d, want the last page (92)", m.offset[outputPage])
 	}
 	view := ansi.Strip(m.View())
 	rows := strings.Split(view, "\n")
-	if len(rows) != 12 || !strings.HasPrefix(rows[0], "Clean · Preview") || !strings.HasSuffix(rows[0], "92-100 of 100") {
+	if len(rows) != 12 || !strings.HasPrefix(rows[0], "Clean · Preview") || !strings.HasSuffix(rows[0], "93-100 of 100") {
 		t.Fatalf("view rows %d, title %q", len(rows), rows[0])
 	}
-	if !strings.HasPrefix(rows[1], "↑↓ Scroll") || rows[2] != strings.Repeat("─", 40) {
-		t.Errorf("keys %q, divider %q", rows[1], rows[2])
+	if rows[1] != strings.Repeat("─", 40) || rows[10] != strings.Repeat("─", 40) {
+		t.Errorf("dividers %q, %q", rows[1], rows[10])
 	}
-	if rows[3] != "line 92" || rows[11] != "line 100" {
-		t.Errorf("body %q .. %q", rows[3], rows[11])
+	if !strings.HasPrefix(rows[11], "✓ Done") || !strings.HasSuffix(rows[11], "Q Back to menu") {
+		t.Errorf("bar %q", rows[11])
+	}
+	if rows[2] != "line 93" || rows[9] != "line 100" {
+		t.Errorf("body %q .. %q", rows[2], rows[9])
 	}
 	m = press(m, "up", "up", "pgup")
-	if m.offset[outputPage] != 80 {
+	if m.offset[outputPage] != 82 {
 		t.Errorf("after up, up, pgup: %d", m.offset[outputPage])
 	}
 	m = press(m, "home", "up")
@@ -79,13 +86,13 @@ func TestViewOpensAtTheEndAndScrolls(t *testing.T) {
 		t.Errorf("home then up: %d", m.offset[outputPage])
 	}
 	m = press(m, "end", "down", "pgdown")
-	if m.offset[outputPage] != 91 {
+	if m.offset[outputPage] != 92 {
 		t.Errorf("end, down, pgdown: %d", m.offset[outputPage])
 	}
 }
 
 func TestViewShortOutputHasNoPosition(t *testing.T) {
-	m := newModel("Touch ID", []string{"Touch ID is not configured"}, "", nil, 40, 12)
+	m := newModel("Touch ID", []string{"Touch ID is not configured"}, 0, "", nil, 40, 12)
 	view := ansi.Strip(m.View())
 	if strings.Contains(view, " of ") || !strings.Contains(view, "Touch ID is not configured") {
 		t.Errorf("view %q", view)
@@ -97,7 +104,7 @@ func TestViewShortOutputHasNoPosition(t *testing.T) {
 
 func TestViewFileListOnF(t *testing.T) {
 	long := "/Users/me/Library/Caches/" + strings.Repeat("a", 50) + "/file.cache"
-	m := newModel("Clean · Preview", numbered(5), "/tmp/clean-list.txt", []string{"# Clean list", long}, 40, 12)
+	m := newModel("Clean · Preview", numbered(5), 0, "/tmp/clean-list.txt", []string{"# Clean list", long}, 40, 12)
 	if !strings.Contains(ansi.Strip(m.View()), "F File list") {
 		t.Fatal("F not offered")
 	}
@@ -125,14 +132,14 @@ func TestViewFileListOnF(t *testing.T) {
 	}
 }
 
-func TestKeysDropHintsBeforeTheBackKey(t *testing.T) {
-	m := newModel("Clean", numbered(3), "/tmp/x", []string{"x"}, 120, 12)
-	if k := m.keys(120); !strings.Contains(k, "Home End") || !strings.Contains(k, "PgUp PgDn") {
-		t.Errorf("wide keys %q", k)
+func TestBarDropsHintsBeforeTheStatusAndTheBackKey(t *testing.T) {
+	m := newModel("Clean", numbered(3), 0, "/tmp/x", []string{"x"}, 120, 12)
+	if k := ansi.Strip(m.bar(120)); !strings.Contains(k, "Home End") || !strings.Contains(k, "PgUp PgDn") || !strings.Contains(k, "/ Search") {
+		t.Errorf("wide bar %q", k)
 	}
-	k := m.keys(50)
-	if strings.Contains(k, "Home End") || !strings.Contains(k, "F File list") || !strings.Contains(k, "Q Back to menu") {
-		t.Errorf("narrow keys %q", k)
+	k := ansi.Strip(m.bar(50))
+	if k != "✓ Done  |  F File list  |  Q Back to menu" {
+		t.Errorf("narrow bar %q", k)
 	}
 }
 
@@ -148,8 +155,11 @@ func cleanPreviewOutput() []string {
 }
 
 func TestSummaryIsPinnedAtTheTop(t *testing.T) {
-	m := newModel("Clean · Preview", cleanPreviewOutput(), "/tmp/clean-list.txt", []string{"x"}, 80, 16)
+	m := newModel("Clean · Preview", cleanPreviewOutput(), 0, "/tmp/clean-list.txt", []string{"x"}, 80, 16)
 	rows := strings.Split(ansi.Strip(m.View()), "\n")
+	if len(rows) != 16 {
+		t.Fatalf("%d rows", len(rows))
+	}
 	want := []string{
 		"Dry run complete - no changes made",
 		"Potential space: 611.0MB | Items: 84 | Categories: 6",
@@ -161,11 +171,15 @@ func TestSummaryIsPinnedAtTheTop(t *testing.T) {
 			t.Errorf("summary row %d = %q, want %q", i, rows[1+i], w)
 		}
 	}
-	if !strings.HasPrefix(rows[5], "↑↓ Scroll") || !strings.HasPrefix(rows[6], "───") {
-		t.Errorf("keys %q, divider %q", rows[5], rows[6])
+	if !strings.HasPrefix(rows[5], "───") {
+		t.Errorf("divider %q", rows[5])
+	}
+	// The bar at the bottom repeats the summary's heading, where the eyes are.
+	if !strings.HasPrefix(rows[15], "✓ Dry run complete - no changes made") {
+		t.Errorf("bar %q", rows[15])
 	}
 	// The summary is not repeated at the end of the output.
-	body := strings.Join(rows[7:], "\n")
+	body := strings.Join(rows[6:14], "\n")
 	if strings.Contains(body, "Potential space") || strings.Contains(body, "=====") || !strings.HasSuffix(body, "line 20") {
 		t.Errorf("body %q", body)
 	}
@@ -248,7 +262,7 @@ func (r *keystrokes) Read(p []byte) (int, error) {
 }
 
 func TestShowRunsTheScreenUntilQ(t *testing.T) {
-	m := newModel("Clean · Preview", numbered(100), "/tmp/clean-list.txt", []string{"# list"}, 40, 12)
+	m := newModel("Clean · Preview", numbered(100), 0, "/tmp/clean-list.txt", []string{"# list"}, 40, 12)
 	var out bytes.Buffer
 	// Up twice, then F, Q (back to the results) and Q (back to the menu).
 	keys := &keystrokes{keys: []string{"\x1b[A", "\x1b[A", "F", "q", "q"}}
@@ -256,7 +270,7 @@ func TestShowRunsTheScreenUntilQ(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if final.page != outputPage || final.offset[outputPage] != 89 {
+	if final.page != outputPage || final.offset[outputPage] != 90 {
 		t.Errorf("ended on page %d at %d", final.page, final.offset[outputPage])
 	}
 	if !strings.Contains(ansi.Strip(out.String()), "Clean · Preview") {
@@ -271,12 +285,129 @@ func TestShowRunsTheScreenUntilQ(t *testing.T) {
 }
 
 func TestKeysThatArriveTogetherEachCount(t *testing.T) {
-	m := newModel("Clean", numbered(100), "", nil, 40, 12)
+	m := newModel("Clean", numbered(100), 0, "", nil, 40, 12)
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("kkk")})
-	if got := next.(model).offset[outputPage]; got != 88 {
-		t.Errorf("kkk scrolled to %d, want 88", got)
+	if got := next.(model).offset[outputPage]; got != 89 {
+		t.Errorf("kkk scrolled to %d, want 89", got)
 	}
 	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("kq")}); cmd == nil {
 		t.Error("a q among other keys did not leave")
+	}
+}
+
+func TestFinishStatusSaysHowTheCommandEnded(t *testing.T) {
+	heading := []string{"\x1b[1;34mUpdates installed\x1b[0m", "Updated 1"}
+	for _, c := range []struct {
+		summary []string
+		code    int
+		want    string
+	}{
+		{heading, 0, "✓ Updates installed"},
+		{nil, 0, "✓ Done"},
+		{nil, 130, "■ Stopped"},
+		{heading, -1, "■ Stopped"},
+		{[]string{"Some updates did not install"}, 1, "! Some updates did not install"},
+		{nil, 2, "! Ended with an error (exit status 2)"},
+	} {
+		if got := ansi.Strip(finishStatus(c.summary, c.code)); got != c.want {
+			t.Errorf("finishStatus(%q, %d) = %q, want %q", c.summary, c.code, got, c.want)
+		}
+	}
+}
+
+func TestBarAtTheBottomSaysTheCommandFinished(t *testing.T) {
+	out := append(numbered(30), strings.Repeat("=", 70), "\x1b[1;34mUpdates installed\x1b[0m", "Updated 1", strings.Repeat("=", 70))
+	m := newModel("Software updates", out, 0, "", nil, 80, 14)
+	rows := strings.Split(ansi.Strip(m.View()), "\n")
+	last := rows[len(rows)-1]
+	if !strings.HasPrefix(last, "✓ Updates installed  |  ") || !strings.HasSuffix(last, "Q Back to menu") {
+		t.Errorf("bar %q", last)
+	}
+	if rows[len(rows)-2] != strings.Repeat("─", 80) || rows[len(rows)-3] != "line 30" {
+		t.Errorf("rows above the bar %q, %q", rows[len(rows)-3], rows[len(rows)-2])
+	}
+	// A narrow window shortens the heading but keeps Q whole.
+	if got := ansi.Strip(m.bar(30)); !strings.HasSuffix(got, "Q Back to menu") || !strings.HasPrefix(got, "✓ Upd") {
+		t.Errorf("narrow bar %q", got)
+	}
+}
+
+func TestSearchNarrowsTheResultsAsYouType(t *testing.T) {
+	m := newModel("History", numbered(100), 0, "", nil, 60, 12)
+	m = press(m, "/")
+	if !m.typing || !strings.Contains(ansi.Strip(m.View()), "/ Search: _") {
+		t.Fatalf("/ did not open the search line: %q", ansi.Strip(m.View()))
+	}
+	m = press(m, "l", "i", "n", "e", " ", "4")
+	// line 4 and line 40 to 49 match.
+	view := ansi.Strip(m.View())
+	rows := strings.Split(view, "\n")
+	if rows[2] != "line 4" || rows[3] != "line 40" || !strings.Contains(rows[11], "/ Search: line 4_") || !strings.Contains(rows[11], "11 matching lines") {
+		t.Fatalf("filtered view %q", view)
+	}
+	if !strings.Contains(m.View(), markStyle+"line 4"+resetStyle) {
+		t.Error("the match is not marked")
+	}
+	// q is typed while the search line has the keys; backspace takes it off.
+	m = press(m, "q")
+	if !m.typing || m.query != "line 4q" || !strings.Contains(ansi.Strip(m.View()), "No matches") {
+		t.Fatalf("q while typing: typing=%v query=%q", m.typing, m.query)
+	}
+	m = press(m, "backspace", "enter")
+	if m.typing || m.query != "line 4" {
+		t.Fatalf("Enter did not finish the search: typing=%v query=%q", m.typing, m.query)
+	}
+	// Q clears the search and goes back to where the page was; Q again leaves.
+	if quits(m, "q") {
+		t.Fatal("Q left with a search applied")
+	}
+	m = press(m, "q")
+	if m.query != "" || m.offset[outputPage] != 92 {
+		t.Fatalf("after Q: query %q, offset %d", m.query, m.offset[outputPage])
+	}
+	if !quits(m, "q") {
+		t.Error("Q without a search did not go back to the menu")
+	}
+}
+
+func TestArrowsLeaveTheSearchLineAndEscClearsIt(t *testing.T) {
+	m := newModel("History", numbered(100), 0, "", nil, 40, 12)
+	m = press(m, "/", "1", "down")
+	if m.typing || m.query != "1" || m.offset[outputPage] != 1 {
+		t.Fatalf("down: typing=%v query=%q offset=%d", m.typing, m.query, m.offset[outputPage])
+	}
+	// j scrolls now instead of typing.
+	m = press(m, "j")
+	if m.query != "1" || m.offset[outputPage] != 2 {
+		t.Fatalf("j: query=%q offset=%d", m.query, m.offset[outputPage])
+	}
+	m = press(m, "/", "0", "esc")
+	if m.typing || m.query != "" || m.offset[outputPage] != 92 {
+		t.Fatalf("esc: typing=%v query=%q offset=%d", m.typing, m.query, m.offset[outputPage])
+	}
+	// / then Esc without typing leaves the page where it was.
+	m = press(m, "up", "/", "esc")
+	if m.offset[outputPage] != 91 {
+		t.Errorf("/ then Esc moved the page to %d", m.offset[outputPage])
+	}
+}
+
+func TestSearchTheFileList(t *testing.T) {
+	m := newModel("Clean · Preview", numbered(5), 0, "/tmp/clean-list.txt",
+		[]string{"# Clean list", "/Users/me/Library/Caches/com.example.app", "/Users/me/Library/Logs/old.log"}, 60, 12)
+	m = press(m, "/", "x")
+	m = press(m, "esc", "F", "/", "C", "A", "C", "H", "E", "enter")
+	view := ansi.Strip(m.View())
+	if m.page != filePage || !strings.Contains(view, "com.example.app") || strings.Contains(view, "old.log") || !strings.Contains(view, "1 matching line") {
+		t.Fatalf("file list search %q", view)
+	}
+	// Q clears the search first, then goes back to the results.
+	m = press(m, "q")
+	if m.page != filePage || m.query != "" {
+		t.Fatalf("first Q: page %d query %q", m.page, m.query)
+	}
+	m = press(m, "q")
+	if m.page != outputPage {
+		t.Error("second Q did not go back to the results")
 	}
 }

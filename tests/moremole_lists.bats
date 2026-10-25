@@ -166,3 +166,10 @@ read_key() {
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 	[[ "$output" == *"sort=name"* ]]
 }
+
+@test "Purge's find shows what you type (real terminal)" {
+	command -v python3 > /dev/null 2>&1 || skip "python3 is required for the PTY fixture"
+	run python3 "$PROJECT_ROOT/tests/moremole_purge_find_pty.py"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"PASS"* ]]
+}

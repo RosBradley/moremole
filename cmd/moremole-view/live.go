@@ -18,9 +18,9 @@ import (
 )
 
 // pane runs a command on a terminal of its own and shows that terminal's
-// screen below fixed rows at the top (frame.go), so the command's output
-// scrolls under them while they stay put. Keys go to the command, so its
-// prompts, passwords and pick lists work as usual.
+// screen between fixed rows at the top and a bar at the bottom (frame.go), so
+// the command's output scrolls between them while they stay put. Keys go to
+// the command, so its prompts, passwords and pick lists work as usual.
 type pane struct {
 	title  string
 	note   string
@@ -74,12 +74,14 @@ const spinEvery = 4
 func (p *pane) spinner() string { return spinnerFrames[(p.ticks/spinEvery)%len(spinnerFrames)] }
 
 func (p *pane) top(cols int) []string {
-	spin := p.spinner()
-	return topRows(p.title, spin+" Running", placeholder(p.labels, spin), liveKeys, cols)
+	return topRows(p.title, "", placeholder(p.labels, p.spinner()), cols)
 }
 
-// rowsFor leaves the fixed rows at the top out of the command's screen.
-func (p *pane) rowsFor(rows int) int { return max(1, rows-len(p.top(1))) }
+func (p *pane) bottom(cols int) []string { return bottomRows(liveBar(p.spinner(), cols), cols) }
+
+// rowsFor leaves the fixed rows at the top and the bar at the bottom out of
+// the command's screen.
+func (p *pane) rowsFor(rows int) int { return max(1, rows-len(p.top(1))-len(p.bottom(1))) }
 
 // run starts argv in the pane and returns its output once it exits, with
 // its exit status (-1 when a signal stopped it). errCannotRun means nothing
@@ -248,12 +250,14 @@ func forwardInput(fd int, to io.Writer, stop <-chan struct{}, done chan<- struct
 	}
 }
 
-// draw shows the fixed rows and, under them, the command's screen.
+// draw shows the fixed rows, the command's screen under them and the bar
+// at the bottom.
 func (p *pane) draw() {
 	cols := p.term.width
 	frame := p.top(cols)
 	above := len(frame)
 	frame = append(frame, p.term.Screen()...)
+	frame = append(frame, p.bottom(cols)...)
 	var sb strings.Builder
 	sb.WriteString("\x1b[?25l")
 	for i, line := range frame {

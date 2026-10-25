@@ -1,9 +1,11 @@
 // Command moremole-view-go runs a command from the menu on a screen of its
-// own: fixed rows at the top hold the title, the command's summary (its
-// labels with a spinner until it finishes) and the keys, and the command's
-// output scrolls below them, like the main menu; keys go to the command.
-// When it finishes, its summary is pinned at the top and the rest of what it
-// printed scrolls below, with Clean's file list on F when the run wrote it.
+// own: fixed rows at the top hold the title and the command's summary (its
+// labels with a spinner until it finishes), a bar at the bottom says it is
+// running, and the command's output scrolls between them; keys go to the
+// command. When it finishes, its summary is pinned at the top, the bar says
+// how it ended and which keys work, and the rest of what it printed scrolls
+// between them, with / to search it and Clean's file list on F when the run
+// wrote it.
 //
 //	moremole-view-go [--title TITLE] [--note TEXT] [--summary LABELS] [--file PATH] [--unstarted PATH] -- COMMAND [ARGS...]
 //
@@ -123,7 +125,7 @@ func run(args []string, stdin, stdout *os.File, stderr io.Writer) int {
 		}
 	}
 	cols, rows, _ := terminalSize(stdout)
-	m := newModel(p.title, output, filePath, fileLines, cols, rows)
+	m := newModel(p.title, output, code, filePath, fileLines, cols, rows)
 	if _, err := show(m); err != nil {
 		leaveScreen(stdout)
 		_, _ = fmt.Fprintln(stderr, err)
