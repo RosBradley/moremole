@@ -697,6 +697,9 @@ get_path_size_kb() {
     esac
     echo 1
 }
+# The clean command uses reclaim sizing; standalone callers use occupancy.
+# Mutate evidence at the actual size boundary for either route.
+get_cleanup_path_size_kb() { get_path_size_kb "$@"; }
 record_dry_run_cleanup_target() { printf '%s\n' "$1" >> "$HOME/preview"; }
 rc=0
 case "$ROUTE" in

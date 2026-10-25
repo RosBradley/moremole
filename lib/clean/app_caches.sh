@@ -432,37 +432,50 @@ clean_editor_obsolete_extensions() {
         done < <(_mole_obsolete_extension_keys "$obsolete_file")
     done
 }
+# CodeBuddyExtension is shared by the CodeBuddy editors and WorkBuddy.
+# A closed editor alone does not establish that these caches are idle.
+_codebuddy_shared_cache_running() {
+    mole_pgrep_any -x 'CodeBuddy|CodeBuddy CN|WorkBuddy' \
+        -f '/(CodeBuddy( CN)?|WorkBuddy)[.]app/'
+}
+
 # Code editors.
 clean_code_editors() {
-    safe_clean ~/Library/Application\ Support/Code/logs/* "VS Code logs"
-    safe_clean ~/Library/Application\ Support/Code/Cache/* "VS Code cache"
-    safe_clean ~/Library/Application\ Support/Code/CachedExtensionVSIXs/* "VS Code extension cache"
-    safe_clean ~/Library/Application\ Support/Cursor/CachedExtensionVSIXs/* "Cursor extension cache"
-    safe_clean ~/Library/Application\ Support/Code/CachedData/* "VS Code data cache"
-    safe_clean ~/Library/Application\ Support/Code/WebStorage/*/CacheStorage/* "VS Code webview cache"
+    mole_safe_clean_app_cache "Visual Studio Code" ~/Library/Application\ Support/Code/logs/* "VS Code logs"
+    mole_safe_clean_app_cache "Visual Studio Code" ~/Library/Application\ Support/Code/Cache/* "VS Code cache"
+    mole_safe_clean_app_cache "Visual Studio Code" ~/Library/Application\ Support/Code/CachedExtensionVSIXs/* "VS Code extension cache"
+    mole_safe_clean_app_cache "Cursor" ~/Library/Application\ Support/Cursor/CachedExtensionVSIXs/* "Cursor extension cache"
+    mole_safe_clean_app_cache "Visual Studio Code" ~/Library/Application\ Support/Code/CachedData/* "VS Code data cache"
+    mole_safe_clean_app_cache "Visual Studio Code" ~/Library/Application\ Support/Code/WebStorage/*/CacheStorage/* "VS Code webview cache"
     safe_clean ~/Library/Caches/com.sublimetext.*/* "Sublime Text cache"
     safe_clean ~/Library/Caches/Zed/* "Zed cache"
     # Zed npm caches: node/cache (system-node scratch) and node/node-v*/cache
     # (per-version managed runtime, see #88); keep editor state under db/ untouched.
-    safe_clean ~/Library/Application\ Support/Zed/node/cache/* "Zed npm cache"
-    safe_clean ~/Library/Application\ Support/Zed/node/node-v*/cache/* "Zed npm cache"
+    mole_safe_clean_app_cache "Zed" ~/Library/Application\ Support/Zed/node/cache/* "Zed npm cache"
+    mole_safe_clean_app_cache "Zed" ~/Library/Application\ Support/Zed/node/node-v*/cache/* "Zed npm cache"
     safe_clean ~/Library/Logs/Zed/* "Zed logs"
     clean_editor_obsolete_extensions
-    # CodeBuddy Extension (VS Code fork, Electron)
+    # Shared desktop extension caches have more than one possible owner.
     if [[ -d ~/Library/Application\ Support/CodeBuddyExtension ]]; then
-        safe_clean ~/Library/Application\ Support/CodeBuddyExtension/Cache/* "CodeBuddy Extension cache"
-        safe_clean ~/Library/Application\ Support/CodeBuddyExtension/logs/* "CodeBuddy Extension logs"
+        local codebuddy_rc=0
+        _dev_safe_clean_process_guarded _codebuddy_shared_cache_running "CodeBuddy" "CodeBuddy Extension cache" \
+            ~/Library/Application\ Support/CodeBuddyExtension/Cache/* "CodeBuddy Extension cache" || codebuddy_rc=$?
+        [[ $codebuddy_rc -le 1 ]] || return "$codebuddy_rc"
+        codebuddy_rc=0
+        _dev_safe_clean_process_guarded _codebuddy_shared_cache_running "CodeBuddy" "CodeBuddy Extension logs" \
+            ~/Library/Application\ Support/CodeBuddyExtension/logs/* "CodeBuddy Extension logs" || codebuddy_rc=$?
+        [[ $codebuddy_rc -le 1 ]] || return "$codebuddy_rc"
     fi
     # CodeBuddy CN (VS Code fork, Electron)
     if [[ -d ~/Library/Application\ Support/CodeBuddy\ CN ]]; then
-        safe_clean ~/Library/Application\ Support/CodeBuddy\ CN/Cache/* "CodeBuddy CN cache"
-        safe_clean ~/Library/Application\ Support/CodeBuddy\ CN/CachedData/* "CodeBuddy CN cached data"
-        safe_clean ~/Library/Application\ Support/CodeBuddy\ CN/CachedExtensionVSIXs/* "CodeBuddy CN extension cache"
-        safe_clean ~/Library/Application\ Support/CodeBuddy\ CN/Code\ Cache/* "CodeBuddy CN code cache"
-        safe_clean ~/Library/Application\ Support/CodeBuddy\ CN/GPUCache/* "CodeBuddy CN GPU cache"
-        safe_clean ~/Library/Application\ Support/CodeBuddy\ CN/DawnGraphiteCache/* "CodeBuddy CN Dawn cache"
-        safe_clean ~/Library/Application\ Support/CodeBuddy\ CN/DawnWebGPUCache/* "CodeBuddy CN WebGPU cache"
-        safe_clean ~/Library/Application\ Support/CodeBuddy\ CN/logs/* "CodeBuddy CN logs"
+        mole_safe_clean_app_cache "CodeBuddy CN" ~/Library/Application\ Support/CodeBuddy\ CN/Cache/* "CodeBuddy CN cache"
+        mole_safe_clean_app_cache "CodeBuddy CN" ~/Library/Application\ Support/CodeBuddy\ CN/CachedData/* "CodeBuddy CN cached data"
+        mole_safe_clean_app_cache "CodeBuddy CN" ~/Library/Application\ Support/CodeBuddy\ CN/CachedExtensionVSIXs/* "CodeBuddy CN extension cache"
+        mole_safe_clean_app_cache "CodeBuddy CN" ~/Library/Application\ Support/CodeBuddy\ CN/Code\ Cache/* "CodeBuddy CN code cache"
+        mole_safe_clean_app_cache "CodeBuddy CN" ~/Library/Application\ Support/CodeBuddy\ CN/GPUCache/* "CodeBuddy CN GPU cache"
+        mole_safe_clean_app_cache "CodeBuddy CN" ~/Library/Application\ Support/CodeBuddy\ CN/DawnGraphiteCache/* "CodeBuddy CN Dawn cache"
+        mole_safe_clean_app_cache "CodeBuddy CN" ~/Library/Application\ Support/CodeBuddy\ CN/DawnWebGPUCache/* "CodeBuddy CN WebGPU cache"
+        mole_safe_clean_app_cache "CodeBuddy CN" ~/Library/Application\ Support/CodeBuddy\ CN/logs/* "CodeBuddy CN logs"
     fi
 }
 # Lark / Feishu desktop embeds a Chromium webview (the "aha" explorer profile)
@@ -900,9 +913,9 @@ clean_wechat_container_caches() {
 
 # Communication apps.
 clean_communication_apps() {
-    safe_clean ~/Library/Application\ Support/discord/Cache/* "Discord cache"
-    safe_clean ~/Library/Application\ Support/legcord/Cache/* "Legcord cache"
-    safe_clean ~/Library/Application\ Support/Slack/Cache/* "Slack cache"
+    mole_safe_clean_app_cache "Discord" ~/Library/Application\ Support/discord/Cache/* "Discord cache"
+    mole_safe_clean_app_cache "Legcord" ~/Library/Application\ Support/legcord/Cache/* "Legcord cache"
+    mole_safe_clean_app_cache "Slack" ~/Library/Application\ Support/Slack/Cache/* "Slack cache"
     safe_clean ~/Library/Caches/us.zoom.xos/* "Zoom cache"
     safe_clean ~/Library/Caches/com.tencent.xinWeChat/* "WeChat cache"
     safe_clean ~/Library/Caches/ru.keepcoder.Telegram/* "Telegram cache"
@@ -922,12 +935,12 @@ clean_communication_apps() {
     clean_feishu_service_worker_caches
     clean_notion_service_worker_caches
     if [[ -d ~/Library/Application\ Support/Microsoft/Teams ]]; then
-        safe_clean ~/Library/Application\ Support/Microsoft/Teams/Cache/* "Microsoft Teams legacy cache"
-        safe_clean ~/Library/Application\ Support/Microsoft/Teams/Application\ Cache/* "Microsoft Teams legacy application cache"
-        safe_clean ~/Library/Application\ Support/Microsoft/Teams/Code\ Cache/* "Microsoft Teams legacy code cache"
-        safe_clean ~/Library/Application\ Support/Microsoft/Teams/GPUCache/* "Microsoft Teams legacy GPU cache"
-        safe_clean ~/Library/Application\ Support/Microsoft/Teams/logs/* "Microsoft Teams legacy logs"
-        safe_clean ~/Library/Application\ Support/Microsoft/Teams/tmp/* "Microsoft Teams legacy temp files"
+        mole_safe_clean_app_cache "Microsoft Teams" ~/Library/Application\ Support/Microsoft/Teams/Cache/* "Microsoft Teams legacy cache"
+        mole_safe_clean_app_cache "Microsoft Teams" ~/Library/Application\ Support/Microsoft/Teams/Application\ Cache/* "Microsoft Teams legacy application cache"
+        mole_safe_clean_app_cache "Microsoft Teams" ~/Library/Application\ Support/Microsoft/Teams/Code\ Cache/* "Microsoft Teams legacy code cache"
+        mole_safe_clean_app_cache "Microsoft Teams" ~/Library/Application\ Support/Microsoft/Teams/GPUCache/* "Microsoft Teams legacy GPU cache"
+        mole_safe_clean_app_cache "Microsoft Teams" ~/Library/Application\ Support/Microsoft/Teams/logs/* "Microsoft Teams legacy logs"
+        mole_safe_clean_app_cache "Microsoft Teams" ~/Library/Application\ Support/Microsoft/Teams/tmp/* "Microsoft Teams legacy temp files"
     fi
     clean_wechat_container_caches
 }
@@ -1949,12 +1962,12 @@ clean_system_utils() {
     safe_clean ~/Library/Application\ Support/WeType/DictUpdate/* "WeType dict update cache"
     # mihomo-party proxy tool (Electron)
     if [[ -d ~/Library/Application\ Support/mihomo-party ]]; then
-        safe_clean ~/Library/Application\ Support/mihomo-party/Cache/* "mihomo-party cache"
-        safe_clean ~/Library/Application\ Support/mihomo-party/Code\ Cache/* "mihomo-party code cache"
-        safe_clean ~/Library/Application\ Support/mihomo-party/GPUCache/* "mihomo-party GPU cache"
-        safe_clean ~/Library/Application\ Support/mihomo-party/DawnGraphiteCache/* "mihomo-party Dawn cache"
-        safe_clean ~/Library/Application\ Support/mihomo-party/DawnWebGPUCache/* "mihomo-party WebGPU cache"
-        safe_clean ~/Library/Application\ Support/mihomo-party/logs/* "mihomo-party logs"
+        mole_safe_clean_app_cache "mihomo-party" ~/Library/Application\ Support/mihomo-party/Cache/* "mihomo-party cache"
+        mole_safe_clean_app_cache "mihomo-party" ~/Library/Application\ Support/mihomo-party/Code\ Cache/* "mihomo-party code cache"
+        mole_safe_clean_app_cache "mihomo-party" ~/Library/Application\ Support/mihomo-party/GPUCache/* "mihomo-party GPU cache"
+        mole_safe_clean_app_cache "mihomo-party" ~/Library/Application\ Support/mihomo-party/DawnGraphiteCache/* "mihomo-party Dawn cache"
+        mole_safe_clean_app_cache "mihomo-party" ~/Library/Application\ Support/mihomo-party/DawnWebGPUCache/* "mihomo-party WebGPU cache"
+        mole_safe_clean_app_cache "mihomo-party" ~/Library/Application\ Support/mihomo-party/logs/* "mihomo-party logs"
     fi
     # Stash proxy tool
     safe_clean ~/Library/Caches/ws.stash.app.mac/* "Stash cache"

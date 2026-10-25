@@ -558,3 +558,43 @@ EOF
     run grep -F 'git fetch --no-tags --depth=1 origin windows' "$PROJECT_ROOT/.github/workflows/check.yml"
     [ "$status" -eq 0 ]
 }
+
+@test "test runner isolates module-loading temp state before sourcing core" {
+    local bootstrap="$HOME/runner-bootstrap.sh"
+    # Execute the complete real bootstrap; redirect only its repository path to
+    # a fixture so its orphan-test sweep cannot touch another test's HOME.
+    python3 - "$PROJECT_ROOT/scripts/test.sh" "$bootstrap" <<'PYTHON'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+end = '\necho "==============================="\necho "Mole Test Runner"'
+anchor = 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"'
+assert source.count(end) == source.count(anchor) == 1
+prefix = source.split(end, 1)[0]
+prefix = prefix.replace(anchor, 'SCRIPT_DIR="$FIXTURE_REPO/scripts"')
+Path(sys.argv[2]).write_text(prefix)
+PYTHON
+    run env BOOTSTRAP="$bootstrap" SOURCE_REPO="$PROJECT_ROOT" \
+        FIXTURE_REPO="$BATS_TEST_TMPDIR/repo" HOME="$BATS_TEST_TMPDIR/runner-home" \
+        TMPDIR="$BATS_TEST_TMPDIR/ambient-link" MOLE_RESOLVED_TMPDIR="$BATS_TEST_TMPDIR/ambient" \
+        MOLE_TEMP_REGISTRY_FILE="$BATS_TEST_TMPDIR/ambient/mole.registry.parent" /bin/bash <<'SCRIPT'
+set -euo pipefail
+mkdir -p "$FIXTURE_REPO/scripts" "$FIXTURE_REPO/tests" "$HOME" "${TMPDIR%-link}"
+ln -s "${TMPDIR%-link}" "$TMPDIR"
+ln -s "$SOURCE_REPO/lib" "$FIXTURE_REPO/lib"
+ambient="$TMPDIR"
+printf keep > "$MOLE_TEMP_REGISTRY_FILE"
+source "$BOOTSTRAP"
+# This is the runner's real module-loading consumer, outside the Bats helper.
+source "$PROJECT_ROOT/lib/core/common.sh"
+test_file=$(create_temp_file)
+# Shell and canonicalizing consumers must see the same root (including /var).
+[[ "$TMPDIR" == "$(cd -P "$TMPDIR" && pwd -P)" ]] || exit 1
+[[ "$TMPDIR" == "$TEST_SYSTEM_STUB_DIR/tmp" ]] || exit 1
+[[ "$test_file" == "$TMPDIR/"* && -f "$test_file" ]] || exit 1
+[[ "$(cat "$ambient/mole.registry.parent")" == keep ]] || exit 1
+printf 'PASS\n'
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *PASS* ]]
+}

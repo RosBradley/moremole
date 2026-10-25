@@ -22,6 +22,58 @@ teardown() {
     rm -rf "$SANDBOX"
 }
 
+@test "cleanup sizing counts allocated sparse bytes and retains external hardlinks" {
+    /usr/bin/perl -e 'open my $f, ">", $ARGV[0] or die $!; truncate($f, 64*1024*1024) or die $!' "$SANDBOX/sparse"
+    mkdir "$SANDBOX/tree"
+    dd if=/dev/urandom of="$SANDBOX/tree/data" bs=4096 count=8 2>/dev/null
+    ln "$SANDBOX/tree/data" "$SANDBOX/outside"
+    run env PROJECT_ROOT="$PROJECT_ROOT" SANDBOX="$SANDBOX" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+sparse=$(get_cleanup_path_size_kb "$SANDBOX/sparse")
+external=$(get_cleanup_path_size_kb "$SANDBOX/tree")
+printf "sparse=%s external=%s\n" "$sparse" "$external"
+[[ "$sparse" -lt 65536 && "$external" -eq 0 ]] || exit 1
+echo CHECKED
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *CHECKED* ]]
+}
+
+@test "cleanup sizing counts all internal hardlinks once and follows no symlinks" {
+    mkdir "$SANDBOX/tree"
+    dd if=/dev/urandom of="$SANDBOX/tree/data" bs=4096 count=8 2>/dev/null
+    ln "$SANDBOX/tree/data" "$SANDBOX/tree/link"
+    ln -s "$SANDBOX/tree/data" "$SANDBOX/symlink"
+    run env PROJECT_ROOT="$PROJECT_ROOT" SANDBOX="$SANDBOX" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+blocks=$(/usr/bin/stat -f%b "$SANDBOX/tree/data")
+size=$(get_cleanup_path_size_kb "$SANDBOX/tree")
+link=$(get_cleanup_path_size_kb "$SANDBOX/symlink")
+printf "internal=%s allocated-blocks=%s symlink=%s\n" "$size" "$blocks" "$link"
+[[ "$size" -eq $(((blocks + 1) / 2)) && "$link" -eq 0 ]] || exit 1
+echo CHECKED
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *CHECKED* ]]
+}
+
+@test "cleanup sizing does not report shared APFS clone blocks as freed" {
+    dd if=/dev/urandom of="$SANDBOX/original" bs=4096 count=64 2>/dev/null
+    /bin/cp -c "$SANDBOX/original" "$SANDBOX/clone" || skip "APFS clone unavailable"
+    run env PROJECT_ROOT="$PROJECT_ROOT" SANDBOX="$SANDBOX" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+clone=$(get_cleanup_path_size_kb "$SANDBOX/clone")
+printf "clone=%s\n" "$clone"
+[[ "$clone" -eq 0 ]] || exit 1
+echo CHECKED
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *CHECKED* ]]
+}
+
 prelude() {
     cat << EOF
 set -euo pipefail

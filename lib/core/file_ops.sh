@@ -2334,6 +2334,13 @@ _mole_owned_path_still_valid() {
         mole_rc_timeout_or_signal "$hash_rc" && return "$hash_rc"
         [[ $hash_rc -eq 0 && "$current_sha256" == "$expected_file_sha256" ]] || return "$MOLE_ERR_OWNER_UNVERIFIED"
     fi
+    if [[ "${_MOLE_UNINSTALL_UUID_PATH:-}" == "$path" ]]; then
+        local _MOLE_UNINSTALL_DISCOVERY_DEADLINE="${deadline:-${_MOLE_UNINSTALL_DISCOVERY_DEADLINE:-}}"
+        local container_rc=0
+        mole_uninstall_uuid_container_owned "$path" "${_MOLE_UNINSTALL_UUID_OWNER:-}" || container_rc=$?
+        mole_rc_timeout_or_signal "$container_rc" && return "$container_rc"
+        [[ $container_rc -eq 0 ]] || return "$MOLE_ERR_OWNER_UNVERIFIED"
+    fi
     # Hashing reads a file descriptor while the sink acts on a pathname. A
     # replacement installed during the hash must not inherit its approval.
     if [[ -n "$expected_parent" ]] && ! _mole_path_matches_identity \
@@ -2534,6 +2541,18 @@ mole_delete() {
     if ! _mole_expected_path_absent "$expected_absent_path"; then
         _mole_report_unverified_delete "$path" "$mode" "$size_kb" "$MOLE_ERR_APP_REAPPEARED"
         return 1
+    fi
+
+    if [[ "${_MOLE_UNINSTALL_UUID_PATH:-}" == "$path" ]]; then
+        local ownership_rc=0
+        _mole_owned_path_still_valid "$path" "$expected_file_sha256" \
+            "$expected_absent_path" "$expected_parent" "$expected_parent_id" \
+            "$expected_target_id" || ownership_rc=$?
+        mole_rc_timeout_or_signal "$ownership_rc" && return "$ownership_rc"
+        if [[ $ownership_rc -ne 0 ]]; then
+            _mole_report_unverified_delete "$path" "$mode" "$size_kb" "$ownership_rc"
+            return "$ownership_rc"
+        fi
     fi
 
     if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then

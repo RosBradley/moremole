@@ -24,7 +24,7 @@ paths:
 
 ## Status
 
-- `cmd/status/view.go` owns status rendering only; collection and JSON/NDJSON contracts live elsewhere in `cmd/status/`. Keep narrow-terminal layout and automation output independent. Run `go test ./cmd/status` and `MOLE_TEST_NO_AUTH=1 bats tests/cli.bats` when command routing changes.
+- `cmd/status/view.go` owns status rendering only; collection and JSON/NDJSON contracts live elsewhere in `cmd/status/`. Keep narrow-terminal layout and automation output independent. Unknown battery capacity must not render Healthy from cycle count alone; retain independent cycle counts, their known warnings and a known system condition. `TestBatteryHealthLabel` and `TestBatteryCardUnknownCapacityPreservesCycles` pin the label and card. Run `go test ./cmd/status` and `MOLE_TEST_NO_AUTH=1 bats tests/cli.bats` when command routing changes.
 
 ## Tests
 

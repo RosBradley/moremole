@@ -42,7 +42,19 @@ _uninstall_data_preselect_holdback() {
             "$support/firefox" | "$support/firefox/"* | \
             "$support/zen" | "$support/zen/"* | \
             "$support/crossover" | "$support/crossover/"* | \
-            "$support/openemu" | "$support/openemu/"*)
+            "$support/openemu" | "$support/openemu/"* | \
+            "$support/dolphin" | "$support/dolphin/"* | \
+            "$support/pcsx2" | "$support/pcsx2/"* | \
+            "$support/retroarch" | "$support/retroarch/"* | \
+            "$support/prismlauncher" | "$support/prismlauncher/"* | \
+            "$support/minecraft" | "$support/minecraft/"* | \
+            "$support/citra" | "$support/citra/"* | \
+            "$support/cemu" | "$support/cemu/"* | \
+            "$support/ryujinx" | "$support/ryujinx/"* | \
+            "$support/ppsspp" | "$support/ppsspp/"* | \
+            "$support/rpcs3" | "$support/rpcs3/"* | \
+            "$support/multimc" | "$support/multimc/"* | \
+            "$support/atlauncher" | "$support/atlauncher/"*)
             return 0
             ;;
     esac

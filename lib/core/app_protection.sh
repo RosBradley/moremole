@@ -1018,6 +1018,67 @@ _path_belongs_to_independent_cli() {
     return 1
 }
 
+# Metadata-backed leftovers use the same bounded owner probe at discovery
+# and immediately before their individual sink. A missing answer never owns it.
+mole_uninstall_jetbrains_selector() {
+    local app_path="$1" bundle_id="$2" selector="" rc=0 timeout=""
+    mole_ascii_lowercase bundle_id "$bundle_id"
+    [[ "$bundle_id" == com.jetbrains.* && -f "$app_path/Contents/Info.plist" &&
+        ! -L "$app_path/Contents/Info.plist" ]] || return 1
+    timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_QUICK_DETECT_SEC" \
+        "${_MOLE_UNINSTALL_DISCOVERY_DEADLINE:-$((SECONDS + MOLE_TIMEOUT_QUICK_DETECT_SEC))}") || return 1
+    selector=$(run_with_timeout "$timeout" /usr/libexec/PlistBuddy \
+        -c 'Print :JVMOptions:Properties:idea.paths.selector' \
+        "$app_path/Contents/Info.plist" 2> /dev/null) || rc=$?
+    mole_rc_signal "$rc" && return "$rc"
+    [[ $rc -eq 0 && "$selector" =~ ^[A-Za-z][A-Za-z0-9]*[0-9]{4}\.[0-9]+([.][0-9]+)?$ ]] || return 1
+    printf '%s\n' "$selector"
+}
+
+mole_uninstall_uuid_container_owned() {
+    local path="$1" bundle_id="$2" name="${1##*/}"
+    [[ "${path%/*}" == "$HOME/Library/Containers" && -d "$path" && ! -L "$path" ]] || return 1
+    [[ "$name" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || return 1
+    mole_is_reverse_dns_bundle_id "$bundle_id" || return 1
+    local metadata="$path/.com.apple.containermanagerd.metadata.plist"
+    [[ -f "$metadata" && ! -L "$metadata" ]] || return 1
+    local owner="" timeout="" rc=0
+    timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_QUICK_DETECT_SEC" \
+        "${_MOLE_UNINSTALL_DISCOVERY_DEADLINE:-$((SECONDS + MOLE_TIMEOUT_QUICK_DETECT_SEC))}") || return 1
+    owner=$(run_with_timeout "$timeout" /usr/bin/plutil -extract MCMMetadataIdentifier raw "$metadata" 2> /dev/null) || rc=$?
+    mole_rc_signal "$rc" && return "$rc"
+    [[ $rc -eq 0 && "$owner" == "$bundle_id" ]]
+}
+
+mole_uninstall_native_manifest_owned() {
+    local path="$1" app_path="$2"
+    [[ "${path%/*}" == "$HOME/Library/Application Support/"*/NativeMessagingHosts &&
+        "$path" == *.json && -f "$path" && ! -L "$path" &&
+        "$app_path" == /*.app && ! "$app_path" =~ [[:cntrl:]] ]] || return 1
+    local bytes="" host="" timeout="" rc=0
+    local _MOLE_UNINSTALL_DISCOVERY_DEADLINE="${_MOLE_UNINSTALL_DISCOVERY_DEADLINE:-$((SECONDS + MOLE_TIMEOUT_QUICK_DETECT_SEC))}"
+    timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_QUICK_DETECT_SEC" \
+        "$_MOLE_UNINSTALL_DISCOVERY_DEADLINE") || return 1
+    bytes=$(run_with_timeout "$timeout" "$STAT_BSD" -f%z "$path" 2> /dev/null) || rc=$?
+    mole_rc_signal "$rc" && return "$rc"
+    [[ $rc -eq 0 && "$bytes" =~ ^[0-9]+$ && ${#bytes} -le 5 && "$bytes" -le 65536 ]] || return 1
+    timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_QUICK_DETECT_SEC" \
+        "$_MOLE_UNINSTALL_DISCOVERY_DEADLINE") || return 1
+    host=$(run_with_timeout "$timeout" /usr/bin/plutil -extract path raw "$path" 2> /dev/null) || rc=$?
+    mole_rc_signal "$rc" && return "$rc"
+    [[ $rc -eq 0 && "$host" == "$app_path"/* &&
+        ! "$host" =~ (^|/)\.\.(/|$) && ! "$host" =~ [[:cntrl:]] ]] || return 1
+    # While the bundle exists, prove the executable's physical parent too.
+    # After its move the reviewed manifest hash pins this same launch target.
+    if [[ -d "$app_path" ]]; then
+        [[ -f "$host" && ! -L "$host" ]] || return 1
+        local app_root="" host_parent=""
+        app_root=$(cd -P "$app_path" 2> /dev/null && pwd -P) || return 1
+        host_parent=$(cd -P "${host%/*}" 2> /dev/null && pwd -P) || return 1
+        [[ "$host_parent" == "$app_root" || "$host_parent" == "$app_root"/* ]] || return 1
+    fi
+}
+
 _mole_uninstall_embedded_bundle_ids() {
     local app_path="${1:-}"
     local primary_bundle_id="${2:-}"
@@ -1245,6 +1306,9 @@ find_app_files() {
             "$HOME/Library/SyncedPreferences/$bundle_id.plist"
             # PLCrashReporter keeps one folder per bundle id under its own root (#1736).
             "$HOME/Library/Caches/com.plausiblelabs.crashreporter.data/$bundle_id"
+            "$HOME/Library/Caches/$bundle_id.ShipIt"
+            "$HOME/Library/Caches/com.crashlytics.data/$bundle_id"
+            "$HOME/Library/Application Support/com.bugsnag.Bugsnag/$bundle_id"
         )
         # The per-user Darwin cache root holds a folder named by the exact
         # bundle id too. An unresolved root skips this one path, a signal stops.
@@ -1256,6 +1320,25 @@ find_app_files() {
         if [[ $darwin_cache_rc -eq 0 && -n "$darwin_cache_root" ]]; then
             user_patterns+=("$darwin_cache_root/$bundle_id")
         fi
+    fi
+
+    # Exact product leaves only; framework parents belong to many apps.
+    # Shared runtime names cannot establish an updater or crash-folder owner.
+    if [[ ${#app_name} -ge 3 && "$app_name" != *[/\\]* &&
+        ! "$app_name" =~ [[:cntrl:]] ]] &&
+        ! _mole_uninstall_is_common_app_name "$app_name" &&
+        [[ "$lowercase_name" != electron ]]; then
+        user_patterns+=(
+            "$HOME/Library/Caches/SentryCrash/$app_name"
+            "$HOME/Library/Caches/KSCrash/$app_name"
+        )
+        local updater_name
+        for updater_name in "$hyphen_name" "$lowercase_hyphen" "$nospace_name" "$lowercase_nospace"; do
+            user_patterns+=(
+                "$HOME/Library/Caches/$updater_name-updater"
+                "$HOME/Library/Application Support/Caches/$updater_name-updater"
+            )
+        done
     fi
 
     # A bundle id's last segment often names the data directory more precisely
@@ -1511,6 +1594,55 @@ find_app_files() {
         done
     fi
 
+    # UUID container names carry no app identity; their owner metadata does.
+    if [[ "$bundle_id_valid" == true && -d "$HOME/Library/Containers" ]]; then
+        discovery_scan_rc=0
+        _mole_uninstall_materialize_find0 "$discovery_scan_file" \
+            "$HOME/Library/Containers" -mindepth 1 -maxdepth 1 -type d -print0 || discovery_scan_rc=$?
+        if [[ $discovery_scan_rc -ne 0 ]]; then
+            rm -f -- "$discovery_scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
+            return "$discovery_scan_rc"
+        fi
+        local candidate owner_rc
+        # shellcheck disable=SC2094 # On failure remove the tracked scan after its last read.
+        while IFS= read -r -d '' candidate; do
+            owner_rc=0
+            mole_uninstall_uuid_container_owned "$candidate" "$bundle_id" || owner_rc=$?
+            if mole_rc_timeout_or_signal "$owner_rc"; then
+                rm -f -- "$discovery_scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
+                return "$owner_rc"
+            fi
+            [[ $owner_rc -ne 0 ]] || files_to_clean+=("$candidate")
+        done < "$discovery_scan_file"
+    fi
+
+    # Only manifests launching into this exact app are owned. Inspect host
+    # registries directly, without traversing unrelated browser profile data.
+    if [[ "$bundle_id_valid" == true && "$app_path" == /*.app ]]; then
+        local hosts_root manifest manifest_rc
+        for hosts_root in "$HOME/Library/Application Support/"*/NativeMessagingHosts \
+            "$HOME/Library/Application Support/"*/*/NativeMessagingHosts; do
+            [[ -d "$hosts_root" && ! -L "$hosts_root" ]] || continue
+            discovery_scan_rc=0
+            _mole_uninstall_materialize_find0 "$discovery_scan_file" \
+                "$hosts_root" -mindepth 1 -maxdepth 1 -type f -name '*.json' -print0 || discovery_scan_rc=$?
+            if [[ $discovery_scan_rc -ne 0 ]]; then
+                rm -f -- "$discovery_scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
+                return "$discovery_scan_rc"
+            fi
+            # shellcheck disable=SC2094 # On failure remove the tracked scan after its last read.
+            while IFS= read -r -d '' manifest; do
+                manifest_rc=0
+                mole_uninstall_native_manifest_owned "$manifest" "$app_path" || manifest_rc=$?
+                if mole_rc_timeout_or_signal "$manifest_rc"; then
+                    rm -f -- "$discovery_scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
+                    return "$manifest_rc"
+                fi
+                [[ $manifest_rc -ne 0 ]] || files_to_clean+=("$manifest")
+            done < "$discovery_scan_file"
+        done
+    fi
+
     # Shared file lists (recent documents etc.). Keep the root exact: only
     # per-app ApplicationRecentDocuments files named by bundle id are owned by
     # the uninstall target.
@@ -1720,6 +1852,30 @@ find_app_files() {
                 files_to_clean+=("$d")
             done < "$discovery_scan_file"
         done
+    fi
+
+    local selector_bundle_id
+    mole_ascii_lowercase selector_bundle_id "$bundle_id"
+    if [[ "$collect_toolchain_leftovers" == true && "$selector_bundle_id" == com.jetbrains.* && -n "$app_path" ]]; then
+        local selector="" selector_rc=0
+        if [[ "$app_path" == "${_MOLE_UNINSTALL_SELECTOR_APP:-}" ]]; then
+            selector="${_MOLE_UNINSTALL_SELECTED_SELECTOR:-}"
+            [[ -n "$selector" ]] || selector_rc=1
+        else
+            selector=$(mole_uninstall_jetbrains_selector "$app_path" "$bundle_id") || selector_rc=$?
+        fi
+        if mole_rc_timeout_or_signal "$selector_rc"; then
+            rm -f -- "$discovery_scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
+            return "$selector_rc"
+        fi
+        if [[ $selector_rc -eq 0 ]]; then
+            local selector_root
+            for selector_root in "$HOME/Library/Application Support/JetBrains" \
+                "$HOME/Library/Caches/JetBrains" "$HOME/Library/Logs/JetBrains" \
+                "$HOME/Library/Preferences"; do
+                [[ ! -d "$selector_root/$selector" ]] || files_to_clean+=("$selector_root/$selector")
+            done
+        fi
     fi
 
     # Unity and Epic roots hold shared engines, assets and licence state.

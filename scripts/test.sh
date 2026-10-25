@@ -29,6 +29,7 @@ export MOLE_TEST_NO_AUTH=1
 unset NO_COLOR
 
 TEST_SYSTEM_STUB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mole-test-stubs.XXXXXX")"
+TEST_SYSTEM_STUB_DIR="$(cd -P "$TEST_SYSTEM_STUB_DIR" && pwd -P)"
 TEST_GO_HELPER_DIR=""
 # shellcheck disable=SC2329  # Invoked by trap.
 cleanup_test_stubs() {
@@ -38,6 +39,12 @@ cleanup_test_stubs() {
     fi
 }
 trap cleanup_test_stubs EXIT
+
+# Module-loading and installation probes run outside the Bats helper too.
+# Keep their temp registries and stale-temp pruning inside this owned tree.
+mkdir -p "$TEST_SYSTEM_STUB_DIR/tmp"
+export TMPDIR="$TEST_SYSTEM_STUB_DIR/tmp"
+unset MOLE_RESOLVED_TMPDIR MOLE_TEMP_REGISTRY_FILE
 
 cat > "$TEST_SYSTEM_STUB_DIR/sudo" << 'EOF'
 #!/bin/bash

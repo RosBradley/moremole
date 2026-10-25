@@ -1179,6 +1179,9 @@ PLIST
     echo "cache" > "$HOME/Library/Application Support/Code/CachedData/data.bin"
 
     set_mock_host_toolchains
+    # Deduplication needs an idle fixture owner, independent of host editors.
+    printf '#!/bin/bash\nexit 1\n' > "$MOCK_TOOLCHAIN_BIN/pgrep"
+    chmod +x "$MOCK_TOOLCHAIN_BIN/pgrep"
     run env HOME="$HOME" MOLE_TEST_MODE=0 \
         PATH="$MOCK_TOOLCHAIN_BIN:$PATH" "$PROJECT_ROOT/mole" clean --dry-run
     [ "$status" -eq 0 ]

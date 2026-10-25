@@ -178,13 +178,13 @@ _uninstall_match_loaded_background_items() {
     local _total_kb _encoded_files _encoded_system_files _has_sensitive_data
     local _needs_sudo _is_brew_cask _cask_name _encoded_diag_system
     local _encoded_review_system _sibling_guard _expected_app_identity
-    local _original_bundle_id _encoded_live_sibling_fingerprint _expected_info_identity
+    local _original_bundle_id _encoded_live_sibling_fingerprint _expected_info_identity _expected_selector
     for detail in "${details[@]}"; do
         IFS='|' read -r app_name app_path bundle_id _total_kb _encoded_files _encoded_system_files \
             _has_sensitive_data _needs_sudo _is_brew_cask _cask_name _encoded_diag_system \
             _encoded_review_system enc_helpers _sibling_guard _expected_app_identity \
             _original_bundle_id _encoded_live_sibling_fingerprint \
-            _expected_info_identity <<< "$detail"
+            _expected_info_identity _expected_selector <<< "$detail"
         matched=false
         for sp in "${success_paths[@]}"; do
             [[ "$sp" == "$app_path" ]] && matched=true && break
@@ -757,12 +757,40 @@ remove_file_list() {
             continue
         fi
 
+        # UUID containers cannot use the generic Trash batch: the metadata
+        # must still name this bundle at the final move/remove boundary.
+        local _MOLE_UNINSTALL_UUID_PATH="" _MOLE_UNINSTALL_UUID_OWNER=""
+        if [[ "${file%/*}" == "$HOME/Library/Containers" &&
+            "${file##*/}" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]]; then
+            local container_rc=0 container_identity="" container_absent=""
+            mole_uninstall_uuid_container_owned "$file" "$bundle_id" || container_rc=$?
+            mole_rc_timeout_or_signal "$container_rc" && return "$container_rc"
+            if [[ $container_rc -ne 0 ]]; then
+                _mole_report_unverified_delete "$file" "$mode" unknown
+                continue
+            fi
+            container_identity=$(mole_deletion_identity "$file") || container_rc=$?
+            mole_rc_timeout_or_signal "$container_rc" && return "$container_rc"
+            if [[ $container_rc -ne 0 ]]; then
+                _mole_report_unverified_delete "$file" "$mode" unknown
+                continue
+            fi
+            _MOLE_UNINSTALL_UUID_PATH="$file"
+            _MOLE_UNINSTALL_UUID_OWNER="$bundle_id"
+            is_uninstall_dry_run || container_absent="$app_path"
+            mole_delete "$file" "$use_sudo" "$container_identity" "" "$container_absent" || container_rc=$?
+            mole_rc_timeout_or_signal "$container_rc" && return "$container_rc"
+            [[ $container_rc -ne 0 ]] || count=$((count + 1))
+            continue
+        fi
+
         local launch_agent=false
         local launch_agent_identity=""
         local launch_agent_sha256=""
         local launch_absent_path=""
         case "${file%/*}" in
-            "$HOME"/Library/LaunchAgents | /Library/LaunchAgents | /Library/LaunchDaemons)
+            "$HOME"/Library/LaunchAgents | /Library/LaunchAgents | /Library/LaunchDaemons | \
+                "$HOME/Library/Application Support/"*/NativeMessagingHosts)
                 launch_agent=true
                 # A replacement app at the selected path is a new owner. The
                 # original bundle has already moved before leftover removal.
@@ -790,8 +818,12 @@ remove_file_list() {
                     continue
                 fi
                 local owner_rc=0
-                mole_uninstall_launch_agent_owned_by_app "$file" \
-                    "$bundle_id" "$app_path" || owner_rc=$?
+                if [[ "${file%/*}" == */NativeMessagingHosts ]]; then
+                    mole_uninstall_native_manifest_owned "$file" "$app_path" || owner_rc=$?
+                else
+                    mole_uninstall_launch_agent_owned_by_app "$file" \
+                        "$bundle_id" "$app_path" || owner_rc=$?
+                fi
                 mole_rc_timeout_or_signal "$owner_rc" && return "$owner_rc"
                 if [[ $owner_rc -ne 0 ]]; then
                     _mole_report_unverified_delete "$file" "$mode" "unknown"
@@ -915,8 +947,8 @@ uninstall_normalize_bundle_id() {
 # The scanner claims dot-continuation IDs and channel-stripped app names.
 # Any independent installed bundle matching either form can still own those
 # rows. This is a retention predicate, never permission to claim new data.
-# Runs once per installed app in every sibling scan, so it stays fork-free and
-# takes ids in any case.
+# Ordinary id/name matching stays fork-free. JetBrains pairs additionally
+# inspect their exact selectors under the caller's discovery deadline.
 uninstall_bundles_share_remnants() {
     local selected_id="$1" other_id="$2" selected_path="$3" other_path="$4"
     local selected_lower other_lower
@@ -925,6 +957,24 @@ uninstall_bundles_share_remnants() {
     if [[ "$selected_lower" == "$other_lower" ||
         "$selected_lower" == "$other_lower."* || "$other_lower" == "$selected_lower."* ]]; then
         return 0
+    fi
+    if [[ "$selected_lower" == com.jetbrains.* && "$other_lower" == com.jetbrains.* ]]; then
+        local selected_selector="" other_selector="" selector_rc=0
+        if [[ "$selected_path" == "${_MOLE_UNINSTALL_SELECTOR_APP:-}" ]]; then
+            selected_selector="${_MOLE_UNINSTALL_SELECTED_SELECTOR:-}"
+        else
+            selected_selector=$(mole_uninstall_jetbrains_selector "$selected_path" "$selected_id") || selector_rc=$?
+        fi
+        mole_rc_signal "$selector_rc" && return "$selector_rc"
+        # Without a selected selector no selector-derived paths were claimed.
+        # Once claimed, an unreadable survivor cannot prove exclusive ownership.
+        if [[ $selector_rc -eq 0 && -n "$selected_selector" ]]; then
+            selector_rc=0
+            other_selector=$(mole_uninstall_jetbrains_selector "$other_path" "$other_id") || selector_rc=$?
+            mole_rc_signal "$selector_rc" && return "$selector_rc"
+            [[ $selector_rc -eq 0 ]] || return 0
+            [[ "$selected_selector" != "$other_selector" ]] || return 0
+        fi
     fi
     local selected_name="${selected_path##*/}" other_name="${other_path##*/}"
     selected_name="${selected_name%.[aA][pP][pP]}"
@@ -1255,7 +1305,10 @@ _uninstall_collect_live_sibling_candidate() {
         fi
         return 2
     fi
-    uninstall_bundles_share_remnants "$bundle_id_lower" "$app_bundle" "$selected_path" "$app" || return 1
+    local family_rc=0
+    local _MOLE_UNINSTALL_DISCOVERY_DEADLINE="$deadline_seconds"
+    uninstall_bundles_share_remnants "$bundle_id_lower" "$app_bundle" "$selected_path" "$app" || family_rc=$?
+    [[ $family_rc -eq 0 ]] || return "$family_rc"
     _uninstall_live_sibling_path_is_duplicate "$app" && return 1
 
     local live_record=""
@@ -1623,6 +1676,7 @@ _uninstall_live_fingerprint_without_successful_paths() {
 }
 
 uninstall_bundle_id_has_surviving_sibling() {
+    local _MOLE_UNINSTALL_DISCOVERY_DEADLINE="${_MOLE_UNINSTALL_DISCOVERY_DEADLINE:-$((SECONDS + MOLE_TIMEOUT_DISK_VERIFY_SEC))}"
     local bundle_id="$1"
     local app_path="$2"
 
@@ -1635,7 +1689,10 @@ uninstall_bundle_id_has_surviving_sibling() {
     # shellcheck disable=SC2154 # apps_data is provided by bin/uninstall.sh via dynamic scope.
     for row in "${apps_data[@]+"${apps_data[@]}"}"; do
         IFS='|' read -r _ other_path _ other_bundle _ _ _ <<< "$row"
-        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle" "$app_path" "$other_path" || continue
+        local family_rc=0
+        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle" "$app_path" "$other_path" || family_rc=$?
+        mole_rc_signal "$family_rc" && return "$family_rc"
+        [[ $family_rc -eq 0 ]] || continue
         [[ "$other_path" == "$app_path" ]] && continue
         [[ -d "$other_path" ]] || continue
 
@@ -1660,6 +1717,7 @@ uninstall_bundle_id_has_surviving_sibling() {
 # one per line. Used to detect when the selected app's own names collide with
 # the survivor's, in which case name-derived cleanup must be suppressed too.
 uninstall_surviving_sibling_names() {
+    local _MOLE_UNINSTALL_DISCOVERY_DEADLINE="${_MOLE_UNINSTALL_DISCOVERY_DEADLINE:-$((SECONDS + MOLE_TIMEOUT_DISK_VERIFY_SEC))}"
     local bundle_id="$1"
     local app_path="$2"
 
@@ -1671,7 +1729,10 @@ uninstall_surviving_sibling_names() {
     local row other_path other_name other_bundle
     for row in "${apps_data[@]+"${apps_data[@]}"}"; do
         IFS='|' read -r _ other_path other_name other_bundle _ _ _ <<< "$row"
-        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle" "$app_path" "$other_path" || continue
+        local family_rc=0
+        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle" "$app_path" "$other_path" || family_rc=$?
+        mole_rc_signal "$family_rc" && return "$family_rc"
+        [[ $family_rc -eq 0 ]] || continue
         [[ "$other_path" == "$app_path" ]] && continue
         [[ -d "$other_path" ]] || continue
 
@@ -1954,7 +2015,12 @@ _batch_scan_app_details_impl() {
             _MOLE_UNINSTALL_DISCOVERY_DEADLINE=$remnant_floor
         fi
 
-        local sibling_guard="none"
+        local sibling_guard="none" row_sibling_rc=1
+        if [[ "$live_sibling_present" != true ]]; then
+            row_sibling_rc=0
+            uninstall_bundle_id_has_surviving_sibling "$bundle_id" "$app_path" || row_sibling_rc=$?
+            mole_rc_signal "$row_sibling_rc" && return "$row_sibling_rc"
+        fi
         if [[ "$live_sibling_present" == true ]]; then
             sibling_guard="guard_login"
             discovery_app_name=""
@@ -1964,11 +2030,13 @@ _batch_scan_app_details_impl() {
                 debug_log "Could not rule out other copies of bundle id $bundle_id (scan exit $live_sibling_rc); removing only the selected app bundle for $app_name"
             fi
             bundle_id="unknown"
-        elif uninstall_bundle_id_has_surviving_sibling "$bundle_id" "$app_path"; then
+        elif [[ $row_sibling_rc -eq 0 ]]; then
             sibling_guard="guard"
 
             local survivor_names
-            survivor_names=$(uninstall_surviving_sibling_names "$bundle_id" "$app_path")
+            local survivor_names_rc=0
+            survivor_names=$(uninstall_surviving_sibling_names "$bundle_id" "$app_path") || survivor_names_rc=$?
+            mole_rc_signal "$survivor_names_rc" && return "$survivor_names_rc"
             local discovery_lower discovery_base_lower display_lower
             discovery_lower=$(printf '%s' "$discovery_app_name" | LC_ALL=C tr '[:upper:]' '[:lower:]')
             discovery_base_lower=$(uninstall_strip_version_suffix "$discovery_app_name" | LC_ALL=C tr '[:upper:]' '[:lower:]')
@@ -2079,6 +2147,13 @@ _batch_scan_app_details_impl() {
         app_size_kb=$(get_path_size_kb "$app_path") || app_size_rc=$?
         mole_rc_timeout_or_signal "$app_size_rc" && return "$app_size_rc"
         [[ $app_size_rc -eq 0 && "$app_size_kb" =~ ^[0-9]+$ ]] || app_size_kb=0
+        local preview_selector="" preview_selector_rc=0
+        local selector_bundle_id
+        mole_ascii_lowercase selector_bundle_id "$bundle_id"
+        if [[ "$selector_bundle_id" == com.jetbrains.* ]]; then
+            preview_selector=$(mole_uninstall_jetbrains_selector "$app_path" "$bundle_id") || preview_selector_rc=$?
+            mole_rc_signal "$preview_selector_rc" && return "$preview_selector_rc"
+        fi
         local related_files="" diag_user="" diag_system=""
         # system_files is a newline-separated string, not an array.
         # shellcheck disable=SC2178,SC2128
@@ -2098,6 +2173,8 @@ _batch_scan_app_details_impl() {
             _batch_scan_stage="leftover scan"
             local discovery_rc=0
             related_files=$(MOLE_UNINSTALL_SIBLING_SURVIVES="$sibling_survives" \
+                _MOLE_UNINSTALL_SELECTOR_APP="$app_path" \
+                _MOLE_UNINSTALL_SELECTED_SELECTOR="$preview_selector" \
                 find_app_files "$bundle_id" "$discovery_app_name" \
                 "$app_path") || discovery_rc=$?
             if mole_rc_timeout "$discovery_rc"; then
@@ -2219,7 +2296,7 @@ _batch_scan_app_details_impl() {
         encoded_login_item_helpers=$(printf '%s' "$login_item_helpers" | base64 | tr -d '\n' || echo "")
         local encoded_live_sibling_fingerprint
         encoded_live_sibling_fingerprint=$(printf '%s' "$preview_live_sibling_fingerprint" | base64 | tr -d '\n') || return 1
-        app_details+=("$app_name|$app_path|$bundle_id|$total_kb|$encoded_files|$encoded_system_files|$has_sensitive_data|$needs_sudo|$is_brew_cask|$cask_name|$encoded_diag_system|$encoded_review_system|$encoded_login_item_helpers|$sibling_guard|$app_identity|$original_bundle_id|$encoded_live_sibling_fingerprint|$app_info_identity")
+        app_details+=("$app_name|$app_path|$bundle_id|$total_kb|$encoded_files|$encoded_system_files|$has_sensitive_data|$needs_sudo|$is_brew_cask|$cask_name|$encoded_diag_system|$encoded_review_system|$encoded_login_item_helpers|$sibling_guard|$app_identity|$original_bundle_id|$encoded_live_sibling_fingerprint|$app_info_identity|$preview_selector")
     done
     if [[ -t 1 ]]; then stop_inline_spinner; fi
 
@@ -2260,7 +2337,7 @@ _batch_preview_and_confirm() {
 
         local review_index=0
         for detail in "${app_details[@]}"; do
-            IFS='|' read -r app_name app_path bundle_id total_kb encoded_files encoded_system_files has_sensitive_data needs_sudo_flag is_brew_cask cask_name encoded_diag_system encoded_review_system encoded_login_item_helpers sibling_guard _expected_app_identity _original_bundle_id _encoded_live_sibling_fingerprint _expected_info_identity <<< "$detail"
+            IFS='|' read -r app_name app_path bundle_id total_kb encoded_files encoded_system_files has_sensitive_data needs_sudo_flag is_brew_cask cask_name encoded_diag_system encoded_review_system encoded_login_item_helpers sibling_guard _expected_app_identity _original_bundle_id _encoded_live_sibling_fingerprint _expected_info_identity _expected_selector <<< "$detail"
             local app_size_display=$(bytes_to_human "$((total_kb * 1024))")
 
             local brew_tag=""
@@ -2446,7 +2523,7 @@ _batch_execute_removals() {
     local current_index=0
     for detail in "${app_details[@]}"; do
         current_index=$((current_index + 1))
-        IFS='|' read -r app_name app_path bundle_id total_kb encoded_files encoded_system_files has_sensitive_data needs_sudo is_brew_cask cask_name encoded_diag_system encoded_review_system encoded_login_item_helpers sibling_guard expected_app_identity original_bundle_id encoded_live_sibling_fingerprint expected_info_identity <<< "$detail"
+        IFS='|' read -r app_name app_path bundle_id total_kb encoded_files encoded_system_files has_sensitive_data needs_sudo is_brew_cask cask_name encoded_diag_system encoded_review_system encoded_login_item_helpers sibling_guard expected_app_identity original_bundle_id encoded_live_sibling_fingerprint expected_info_identity expected_selector <<< "$detail"
         local related_files=$(decode_file_list "$encoded_files" "$app_name")
         local system_files=$(decode_file_list "$encoded_system_files" "$app_name")
         local diag_system=$(decode_file_list "$encoded_diag_system" "$app_name")
@@ -2491,6 +2568,21 @@ _batch_execute_removals() {
         # suppress shared leftovers. Any added, removed, replaced, or modified
         # sibling invalidates both the name guard and the reviewed plan.
         original_bundle_id="${original_bundle_id:-$bundle_id}"
+        local _MOLE_UNINSTALL_SELECTOR_APP="$app_path"
+        local _MOLE_UNINSTALL_SELECTED_SELECTOR=""
+        local selector_bundle_id
+        mole_ascii_lowercase selector_bundle_id "$original_bundle_id"
+        if [[ "$selector_bundle_id" == com.jetbrains.* ]]; then
+            local selector_rc=0
+            _MOLE_UNINSTALL_SELECTED_SELECTOR=$(mole_uninstall_jetbrains_selector \
+                "$app_path" "$original_bundle_id") || selector_rc=$?
+            mole_rc_signal "$selector_rc" && return "$selector_rc"
+            if [[ -n "$expected_selector" &&
+                ($selector_rc -ne 0 || "$_MOLE_UNINSTALL_SELECTED_SELECTOR" != "$expected_selector") ]]; then
+                reason="selected app metadata changed after preview"
+                suggestion="Select the app again and review the new removal plan"
+            fi
+        fi
         if [[ -z "$reason" ]] && mole_is_reverse_dns_bundle_id "$original_bundle_id"; then
             local preview_live_sibling_fingerprint=""
             if ! preview_live_sibling_fingerprint=$(
