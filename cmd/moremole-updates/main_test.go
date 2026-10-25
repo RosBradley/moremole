@@ -38,6 +38,7 @@ func useFakeCommands(t *testing.T, programs map[string]string, responses map[str
 const outdatedJSON = `{
   "formulae": [
     {"name": "git", "installed_versions": ["2.44.0"], "current_version": "2.45.0", "pinned": false},
+    {"name": "openssl@3", "installed_versions": ["3.6.5"], "current_version": "3.5.9", "pinned": false},
     {"name": "node", "installed_versions": ["20.1.0"], "current_version": "22.0.0", "pinned": true, "pinned_version": "20.1.0"}
   ],
   "casks": [
@@ -64,10 +65,11 @@ func TestScanHomebrewListsAppsAndToolsWithTheirDefaults(t *testing.T) {
 	want := []Row{
 		notice("homebrew-stale", "Couldn't refresh Homebrew's version list, so recent updates may be missing."),
 		{Kind: "app", ID: "google-chrome", Name: "Google Chrome", Installed: "124.0", Available: "125.0", Note: "updates itself"},
-		{Kind: "app", ID: "visual-studio-code", Name: "Microsoft Visual Studio Code", Installed: "1.88.0", Available: "1.89.0", Selected: true},
-		{Kind: "app", ID: "no-info", Name: "no-info", Installed: "1.0", Available: "1.1", Selected: true},
+		{Kind: "app", ID: "visual-studio-code", Name: "Microsoft Visual Studio Code", Installed: "1.88.0", Available: "1.89.0"},
+		{Kind: "app", ID: "no-info", Name: "no-info", Installed: "1.0", Available: "1.1"},
 		{Kind: "app", ID: "some-latest", Name: "Some Latest", Installed: "latest", Available: "latest", Note: "always reinstalls"},
 		{Kind: "tool", ID: "git", Name: "git", Installed: "2.44.0", Available: "2.45.0"},
+		{Kind: "tool", ID: "openssl@3", Name: "openssl@3", Installed: "3.6.5", Available: "3.5.9", Note: "older version, Homebrew's choice"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rows:\n got %#v\nwant %#v\ncalls %v", got, want, *calls)
@@ -91,9 +93,9 @@ func TestScanHomebrewWithoutHomebrewOrWithAnUnreadableAnswer(t *testing.T) {
 func TestParseMasOutdated(t *testing.T) {
 	out := "497799835 Xcode (15.0 -> 15.1)\n1295203466   Microsoft Remote Desktop  (10.9.5 -> 10.9.6)\n409183694 Keynote\nWarning: something\n"
 	want := []Row{
-		{Kind: "store", ID: "409183694", Name: "Keynote", Selected: true},
-		{Kind: "store", ID: "1295203466", Name: "Microsoft Remote Desktop", Installed: "10.9.5", Available: "10.9.6", Selected: true},
-		{Kind: "store", ID: "497799835", Name: "Xcode", Installed: "15.0", Available: "15.1", Selected: true},
+		{Kind: "store", ID: "409183694", Name: "Keynote"},
+		{Kind: "store", ID: "1295203466", Name: "Microsoft Remote Desktop", Installed: "10.9.5", Available: "10.9.6"},
+		{Kind: "store", ID: "497799835", Name: "Xcode", Installed: "15.0", Available: "15.1"},
 	}
 	if got := parseMasOutdated(out); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v\nwant %#v", got, want)
@@ -155,9 +157,9 @@ func TestScanMacOSWithNothingNewOrAFailure(t *testing.T) {
 }
 
 func TestRowStringKeepsFieldsApart(t *testing.T) {
-	row := Row{Kind: "app", ID: "x", Name: "A\tB\x1fC\nD", Installed: "", Available: "2", Selected: true}
+	row := Row{Kind: "app", ID: "x", Name: "A\tB\x1fC\nD", Installed: "", Available: "2"}
 	fields := strings.Split(row.String(), fieldSeparator)
-	want := []string{"app", "x", "A B C D", "", "2", "1", ""}
+	want := []string{"app", "x", "A B C D", "", "2", ""}
 	if !reflect.DeepEqual(fields, want) {
 		t.Errorf("fields %q, want %q", fields, want)
 	}

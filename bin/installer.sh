@@ -23,6 +23,8 @@ export MOLE_CURRENT_COMMAND="${MOLE_CURRENT_COMMAND:-installer}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/core/common.sh"
 source "$SCRIPT_DIR/../lib/ui/menu_paginated.sh"
+# MoreMole: the shared list for installer files (search, A-Z, size, date).
+source "$SCRIPT_DIR/../lib/moremole/lists.sh"
 
 cleanup() {
     if [[ "${IN_ALT_SCREEN:-0}" == "1" ]]; then
@@ -661,7 +663,7 @@ show_installer_menu() {
     echo ""
 
     MOLE_SELECTION_RESULT=""
-    if ! select_installers "${DISPLAY_NAMES[@]}"; then
+    if ! moremole_select_installers; then
         return 1
     fi
 

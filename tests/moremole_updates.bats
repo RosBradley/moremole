@@ -39,7 +39,7 @@ EOF
 	mole_test_fake_command open 'printf "open %s\n" "$*" >> "$CALLS"'
 }
 
-# Append a helper row: kind id name installed available selected note.
+# Append a helper row: kind id name installed available note.
 row() {
 	local file="$ROWS_DIR/$1"
 	shift
@@ -54,30 +54,32 @@ updates_env() {
 }
 
 full_scan_rows() {
-	row brew notice homebrew-stale "" "" "" 0 "Couldn't refresh Homebrew's version list."
-	# The helper sorts each source by name; the script groups by kind.
-	row brew app google-chrome "Google Chrome" 124.0 125.0 0 "updates itself"
-	row brew app visual-studio-code "Visual Studio Code" 1.88.0 1.89.0 1 ""
-	row brew tool git git 2.44.0 2.45.0 0 ""
-	row store store 497799835 Xcode 15.0 15.1 1 ""
-	row takeover takeover firefox Firefox 129.0 130.0 0 "replaces your copy"
-	row macos macos-settings "macOS Sequoia 15.1-24B83" "macOS Sequoia 15.1" "" 15.1 0 "needs a restart, opens Settings"
-	row macos macos "Safari18.1-18.1" Safari "" 18.1 0 ""
+	row brew notice homebrew-stale "" "" "" "Couldn't refresh Homebrew's version list."
+	row brew app google-chrome "Google Chrome" 124.0 125.0 "updates itself"
+	row brew app visual-studio-code "Visual Studio Code" 1.88.0 1.89.0 ""
+	row brew tool git git 2.44.0 2.45.0 ""
+	row store store 497799835 Xcode 15.0 15.1 ""
+	row apps takeover firefox Firefox 129.0 130.0 "replaces your copy"
+	row apps feed "/Applications/Postico 2.app" "Postico 2" 2.1 2.2 "opens the app"
+	row macos macos-settings "macOS Sequoia 15.1-24B83" "macOS Sequoia 15.1" "" 15.1 "needs a restart, opens Settings"
+	row macos macos "Safari18.1-18.1" Safari "" 18.1 ""
 }
 
-@test "a dry run lists every source in order with its defaults and installs nothing" {
+@test "a dry run lists every source A-Z, none marked, and installs nothing" {
 	full_scan_rows
 	run updates_env /bin/bash -c 'source "$1"; main --dry-run' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"DRY RUN"*"Couldn't refresh Homebrew's version list."*"7 updates available"* ]] || return 1
-	# Homebrew apps, then apps to move to Homebrew, App Store, tools and macOS.
-	[[ "$output" == *"Google Chrome"*"Visual Studio Code"*"Firefox"*"Xcode"*"git"*"Safari"*"macOS Sequoia"* ]] || return 1
-	[[ "$output" == *"● Visual Studio Code"*"1.88.0 → 1.89.0"*"Homebrew"* ]] || return 1
-	[[ "$output" == *"○ Google Chrome"*"Homebrew (updates itself)"* ]] || return 1
-	[[ "$output" == *"○ Firefox"*"Move to Homebrew (replaces your copy)"* ]] || return 1
-	[[ "$output" == *"● Xcode"*"App Store"* ]] || return 1
-	[[ "$output" == *"○ git"*"Command-line tool"* ]] || return 1
-	[[ "$output" == *"○ macOS Sequoia 15.1"*"macOS (needs a restart, opens Settings)"* ]] || return 1
+	[[ "$output" == *"DRY RUN"*"Couldn't refresh Homebrew's version list."*"8 updates available"* ]] || return 1
+	# One A-Z list, upper and lower case together, whatever the source.
+	[[ "$output" == *"Firefox"*"git"*"Google Chrome"*"macOS Sequoia"*"Postico 2"*"Safari"*"Visual Studio Code"*"Xcode"* ]] || return 1
+	[[ "$output" == *$'\n  Visual Studio Code'*"1.88.0 → 1.89.0"*"Homebrew"* ]] || return 1
+	[[ "$output" == *"Google Chrome"*"Homebrew (updates itself)"* ]] || return 1
+	[[ "$output" == *"Firefox"*"Move to Homebrew (replaces your copy)"* ]] || return 1
+	[[ "$output" == *"Postico 2"*"2.1 → 2.2"*"Own updater (opens the app)"* ]] || return 1
+	[[ "$output" == *"Xcode"*"App Store"* ]] || return 1
+	[[ "$output" == *"git"*"Command-line tool"* ]] || return 1
+	[[ "$output" == *"macOS Sequoia 15.1"*"macOS (needs a restart, opens Settings)"* ]] || return 1
+	[[ "$output" != *"●"* && "$output" != *"○"* ]] || return 1
 	[ ! -s "$CALLS" ]
 }
 
@@ -86,7 +88,7 @@ full_scan_rows() {
 	run updates_env /bin/bash -c 'source "$1"; main < /dev/null' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 	[[ "$output" != *"DRY RUN"* ]] || return 1
-	[[ "$output" == *"7 updates available"*"Run moremole updates in a terminal to choose updates."* ]] || return 1
+	[[ "$output" == *"8 updates available"*"Run moremole updates in a terminal to choose updates."* ]] || return 1
 	[ ! -s "$CALLS" ]
 }
 
@@ -105,24 +107,24 @@ full_scan_rows() {
 }
 
 @test "helper rows keep empty fields and notices stay out of the update list" {
-	row brew notice mas-missing "" "" "" 0 "App Store apps need mas."
-	row brew macos "Label-1" "Safari" "" 18.1 0 ""
+	row brew notice mas-missing "" "" "" "App Store apps need mas."
+	row brew macos "Label-1" "Safari" "" 18.1 ""
 	run updates_env /bin/bash -c '
 		source "$1"
 		load_update_rows < "$ROWS_DIR/brew"
 		printf "count=%s notices=%s\n" "${#U_KIND[@]}" "${NOTICE_KEYS[*]}"
-		printf "[%s][%s][%s][%s][%s][%s][%s]\n" "${U_KIND[0]}" "${U_ID[0]}" "${U_NAME[0]}" "${U_FROM[0]}" "${U_TO[0]}" "${U_SEL[0]}" "${U_NOTE[0]}"
+		printf "[%s][%s][%s][%s][%s][%s]\n" "${U_KIND[0]}" "${U_ID[0]}" "${U_NAME[0]}" "${U_FROM[0]}" "${U_TO[0]}" "${U_NOTE[0]}"
 		printf "version=%s\n" "$(version_text 0)"
 	' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 	[[ "$output" == *"count=1 notices=mas-missing"* ]] || return 1
-	[[ "$output" == *"[macos][Label-1][Safari][][18.1][0][]"* ]] || return 1
+	[[ "$output" == *"[macos][Label-1][Safari][][18.1][]"* ]] || return 1
 	[[ "$output" == *"version=18.1"* ]]
 }
 
-@test "the pick list starts with the default selections in list order" {
+@test "the pick list starts with nothing selected, in A-Z order" {
 	full_scan_rows
-	printf 'ENTER\n' > "$BATS_TEST_TMPDIR/keys"
+	printf '%s\n' SPACE DOWN DOWN SPACE ENTER > "$BATS_TEST_TMPDIR/keys"
 	run updates_env COLUMNS=60 KEYS_FILE="$BATS_TEST_TMPDIR/keys" KEY_STATE="$BATS_TEST_TMPDIR/key-state" /bin/bash -c '
 		source "$1"
 		enter_alt_screen() { :; }
@@ -138,13 +140,13 @@ full_scan_rows() {
 			key=$(sed -n "${index}p" "$KEYS_FILE")
 			printf "%s\n" "${key:-QUIT}"
 		}
-		for source in brew store takeover macos; do
+		for source in brew store apps macos; do
 			load_update_rows < "$ROWS_DIR/$source"
 		done
 		order_update_rows
 		select_updates || exit 1
 		printf "RESULT=%s\n" "$MOLE_SELECTION_RESULT"
-		printf "first=%s last=%s\n" "${U_NAME[0]}" "${U_NAME[6]}"
+		printf "first=%s last=%s\n" "${U_NAME[0]}" "${U_NAME[7]}"
 		measure_columns
 		for ((i = 0; i < ${#U_KIND[@]}; i++)); do
 			w=$(text_width "$(update_row_text "$i")")
@@ -152,20 +154,21 @@ full_scan_rows() {
 		done
 	' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	# Visual Studio Code (1) and Xcode (3) start selected; the rest do not.
-	[[ "$output" == *"RESULT=1,3"* ]] || return 1
-	[[ "$output" == *"first=Google Chrome last=macOS Sequoia 15.1"* ]]
+	# Only the rows picked with Space: Firefox (0) and Google Chrome (2).
+	[[ "$output" == *"RESULT=0,2"* ]] || return 1
+	[[ "$output" == *"first=Firefox last=Xcode"* ]]
 }
 
 @test "the confirm screen warns about what each kind of update does" {
 	full_scan_rows
 	run updates_env /bin/bash -c '
 		source "$1"
-		for source in brew store takeover macos; do
+		for source in brew store apps macos; do
 			load_update_rows < "$ROWS_DIR/$source"
 		done
 		order_update_rows
-		printf "\n" | confirm_updates 1 2 3 5 6 && echo CONFIRMED
+		# Firefox, Google Chrome, macOS Sequoia, Postico 2, Safari, Xcode.
+		printf "\n" | confirm_updates 0 2 3 4 5 7 && echo CONFIRMED
 		printf "x" | confirm_updates 1 || echo CANCELLED
 	' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
@@ -174,19 +177,20 @@ full_scan_rows() {
 	[[ "$output" == *"App Store updates may ask for your password"* ]] || return 1
 	[[ "$output" == *"macOS updates ask for your password"* ]] || return 1
 	[[ "$output" == *"Updates that restart the Mac open Software Update"* ]] || return 1
-	[[ "$output" == *"Install 5 updates"*"CONFIRMED"* ]] || return 1
+	[[ "$output" == *"Apps with their own updater open at the end"* ]] || return 1
+	[[ "$output" == *"Install 6 updates"*"CONFIRMED"* ]] || return 1
 	[[ "$output" == *"CANCELLED"* ]]
 }
 
 @test "installing runs each source's own command, logs each one and opens Software Update once" {
-	row scan app visual-studio-code "Visual Studio Code" 1.88.0 1.89.0 1 ""
-	row scan app broken "Broken App" 1.0 2.0 1 ""
-	row scan tool git git 2.44.0 2.45.0 0 ""
-	row scan takeover firefox Firefox 129.0 130.0 0 ""
-	row scan store 497799835 Xcode 15.0 15.1 1 ""
-	row scan macos "Safari18.1-18.1" Safari "" 18.1 0 ""
-	row scan macos-settings "macOS Sequoia 15.1-24B83" "macOS Sequoia 15.1" "" 15.1 0 ""
-	row scan macos-settings "Some Firmware-1.0" "Some Firmware" "" 1.0 0 ""
+	row scan app visual-studio-code "Visual Studio Code" 1.88.0 1.89.0 ""
+	row scan app broken "Broken App" 1.0 2.0 ""
+	row scan tool git git 2.44.0 2.45.0 ""
+	row scan takeover firefox Firefox 129.0 130.0 ""
+	row scan store 497799835 Xcode 15.0 15.1 ""
+	row scan macos "Safari18.1-18.1" Safari "" 18.1 ""
+	row scan macos-settings "macOS Sequoia 15.1-24B83" "macOS Sequoia 15.1" "" 15.1 ""
+	row scan macos-settings "Some Firmware-1.0" "Some Firmware" "" 1.0 ""
 	run updates_env /bin/bash -c '
 		source "$1"
 		load_update_rows < "$ROWS_DIR/scan"
@@ -218,6 +222,49 @@ open x-apple.systempreferences:com.apple.Software-Update-Settings.extension" ] |
 	grep -q "FAILED Safari (needs your password)" "$log" || return 1
 	grep -q "SKIPPED Some Firmware (opened Software Update in System Settings)" "$log" || return 1
 	[ "$(grep -c "REBUILT" "$log")" -eq 4 ]
+}
+
+@test "apps with their own updater open after the other updates, and a missing app is not opened" {
+	mkdir -p "$BATS_TEST_TMPDIR/Apps/Postico 2.app" "$BATS_TEST_TMPDIR/Apps/Other.app"
+	row scan feed "$BATS_TEST_TMPDIR/Apps/Postico 2.app" "Postico 2" 2.1 2.2 ""
+	row scan app visual-studio-code "Visual Studio Code" 1.88.0 1.89.0 ""
+	row scan feed "$BATS_TEST_TMPDIR/Apps/Gone.app" Gone 1.0 2.0 ""
+	row scan feed "$BATS_TEST_TMPDIR/Apps/Other.app" Other 3.0 3.1 ""
+	run updates_env /bin/bash -c '
+		source "$1"
+		load_update_rows < "$ROWS_DIR/scan"
+		install_updates 0 1 2 3
+		show_updates_summary
+		printf "updated=%s failed=%s\n" "$total_updated" "$total_failed"
+	' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"updated=1 failed=1"* ]] || return 1
+	[[ "$output" == *"Not updated: Gone: app not found"* ]] || return 1
+	[[ "$output" == *"Opened for their own updater: Postico 2, Other"*"Check for Updates"* ]] || return 1
+
+	local calls
+	calls=$(cat "$CALLS")
+	[ "$calls" = "brew upgrade --cask --greedy visual-studio-code
+open $BATS_TEST_TMPDIR/Apps/Postico 2.app
+open $BATS_TEST_TMPDIR/Apps/Other.app" ] || { echo "$calls"; return 1; }
+
+	local log="$HOME/Library/Logs/mole/operations.log"
+	grep -q "SKIPPED Postico 2 (opened for its own updater)" "$log" || return 1
+	grep -q "FAILED Gone (app not found)" "$log"
+}
+
+@test "opening only apps with their own updater asks to finish in each app" {
+	mkdir -p "$BATS_TEST_TMPDIR/Apps/Postico 2.app"
+	row scan feed "$BATS_TEST_TMPDIR/Apps/Postico 2.app" "Postico 2" 2.1 2.2 ""
+	run updates_env /bin/bash -c '
+		source "$1"
+		load_update_rows < "$ROWS_DIR/scan"
+		install_updates 0
+		show_updates_summary
+	' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"Finish in each app"*"Opened for their own updater: Postico 2"* ]] || return 1
+	[[ "$output" != *"Nothing was updated"* ]]
 }
 
 @test "updates is a command with help, completion and a menu row" {

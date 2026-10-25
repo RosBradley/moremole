@@ -69,6 +69,13 @@ show_optimization_summary() {
     attention=$(optimize_outcome_count "$MOLE_OPTIMIZE_OUTCOME_ATTENTION")
     failed=$(optimize_outcome_count "$MOLE_OPTIMIZE_OUTCOME_FAILED")
 
+    # MoreMole: name the optimizations applied, or that a preview would apply.
+    local applied_names="" applied_action
+    while IFS= read -r applied_action; do
+        [[ -n "$applied_action" ]] || continue
+        applied_names+="${applied_names:+, }$(optimize_catalog_health_name_for "$applied_action" || printf '%s' "$applied_action")"
+    done < <(optimize_actions_with_outcome "$MOLE_OPTIMIZE_OUTCOME_APPLIED")
+
     local -a outcome_parts=()
     [[ $unchanged -gt 0 ]] && outcome_parts+=("$unchanged unchanged")
     [[ $skipped -gt 0 ]] && outcome_parts+=("$skipped skipped")
@@ -88,6 +95,7 @@ show_optimization_summary() {
     if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
         summary_title="Dry Run Complete, No Changes Made"
         summary_details+=("Would apply ${YELLOW}${applied}${NC} optimizations")
+        [[ -z "$applied_names" ]] || summary_details+=("  $applied_names") # MoreMole
         [[ -n "$outcome_line" ]] && summary_details+=("$outcome_line")
         summary_details+=("Run without ${YELLOW}--dry-run${NC} to apply these changes")
     else
@@ -114,6 +122,7 @@ show_optimization_summary() {
             summary_details+=("Applied ${GREEN}${applied}${NC} optimizations")
         fi
 
+        [[ -z "$applied_names" ]] || summary_details+=("  $applied_names") # MoreMole
         [[ -n "$outcome_line" ]] && summary_details+=("$outcome_line")
         if [[ $attention -gt 0 || $failed -gt 0 ]]; then
             summary_details+=("Review the warnings above")

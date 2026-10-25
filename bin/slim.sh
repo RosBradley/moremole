@@ -708,7 +708,8 @@ select_slim_apps() {
     export MOLE_MENU_META_SIZEKB
     MOLE_MENU_FILTER_NAMES=$(printf '%s\n' "${names[@]}")
     export MOLE_MENU_FILTER_NAMES
-    export MOLE_MENU_SORT_MODE=size
+    # MoreMole: lists open A-Z; S sorts by size.
+    export MOLE_MENU_SORT_MODE=name
     export MOLE_MENU_SORT_REVERSE=false
 
     MOLE_SELECTION_RESULT=""

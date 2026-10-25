@@ -81,10 +81,13 @@ func (c caskInfo) appNames() (names []string, plain bool) {
 
 // localApp is an app found in an Applications folder.
 type localApp struct {
+	Path     string
 	FileName string // "Visual Studio Code.app"
+	Name     string // the name the app shows
 	BundleID string
 	Short    string // CFBundleShortVersionString
 	Build    string // CFBundleVersion
+	FeedURL  string // SUFeedURL: where the app's own updater looks
 }
 
 // installedCasks lists what Homebrew already manages: the cask tokens and the
@@ -103,25 +106,6 @@ func installedCasks(brew string) (tokens, apps map[string]bool, err error) {
 		}
 	}
 	return tokens, apps, nil
-}
-
-func scanTakeover() []Row {
-	brew := findBrew()
-	if brew == "" {
-		return nil // the Homebrew scan already says Homebrew is missing
-	}
-	failed := []Row{notice("takeover-failed", "Couldn't check apps installed without Homebrew.")}
-	tokens, managedApps, err := installedCasks(brew)
-	if err != nil {
-		return failed
-	}
-	index, err := loadCaskIndex(brew)
-	if err != nil {
-		return failed
-	}
-	home, _ := os.UserHomeDir()
-	apps := scanApplications([]string{"/Applications", filepath.Join(home, "Applications")})
-	return takeoverRows(apps, index, tokens, managedApps)
 }
 
 // takeoverRows matches apps to casks by the app's file name and offers each
@@ -331,11 +315,21 @@ func readApp(path string) (localApp, bool) {
 	if err != nil {
 		return localApp{}, false
 	}
+	name := strings.TrimSpace(values["CFBundleDisplayName"])
+	if name == "" {
+		name = strings.TrimSpace(values["CFBundleName"])
+	}
+	if name == "" {
+		name = strings.TrimSuffix(filepath.Base(path), ".app")
+	}
 	return localApp{
+		Path:     path,
 		FileName: filepath.Base(path),
+		Name:     name,
 		BundleID: values["CFBundleIdentifier"],
 		Short:    strings.TrimSpace(values["CFBundleShortVersionString"]),
 		Build:    strings.TrimSpace(values["CFBundleVersion"]),
+		FeedURL:  strings.TrimSpace(values["SUFeedURL"]),
 	}, true
 }
 

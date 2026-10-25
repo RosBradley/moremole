@@ -113,24 +113,24 @@ func scanHomebrew() []Row {
 	return append(rows, homebrewRows(outdated, infos)...)
 }
 
-// homebrewRows turns Homebrew's outdated list into rows. Apps start selected
-// unless they update themselves or have no version to compare; command-line
-// tools start unselected, since updating them can break coding projects.
+// homebrewRows turns Homebrew's outdated list into rows, noting apps that
+// update themselves or have no version to compare, and versions older than
+// the installed one, which Homebrew sometimes moves back to on purpose.
 // Pinned tools are left out, as Homebrew will not upgrade them.
 func homebrewRows(outdated brewOutdated, infos map[string]caskInfo) []Row {
 	var apps, tools []Row
 	for _, c := range outdated.Casks {
 		info, known := infos[c.Name]
-		row := Row{Kind: "app", ID: c.Name, Name: c.Name, Installed: lastVersion(c.InstalledVersions), Available: c.CurrentVersion, Selected: true}
+		row := Row{Kind: "app", ID: c.Name, Name: c.Name, Installed: lastVersion(c.InstalledVersions), Available: c.CurrentVersion}
 		if known {
 			row.Name = info.displayName()
 		}
 		switch {
 		case c.CurrentVersion == "latest" || (known && info.Version == "latest"):
-			row.Selected = false
 			row.Note = "always reinstalls"
+		case olderVersion(row):
+			row.Note = olderNote
 		case known && info.AutoUpdates:
-			row.Selected = false
 			row.Note = "updates itself"
 		}
 		apps = append(apps, row)
@@ -139,11 +139,23 @@ func homebrewRows(outdated brewOutdated, infos map[string]caskInfo) []Row {
 		if f.Pinned {
 			continue
 		}
-		tools = append(tools, Row{Kind: "tool", ID: f.Name, Name: f.Name, Installed: lastVersion(f.InstalledVersions), Available: f.CurrentVersion})
+		row := Row{Kind: "tool", ID: f.Name, Name: f.Name, Installed: lastVersion(f.InstalledVersions), Available: f.CurrentVersion}
+		if olderVersion(row) {
+			row.Note = olderNote
+		}
+		tools = append(tools, row)
 	}
 	sortRows(apps)
 	sortRows(tools)
 	return append(apps, tools...)
+}
+
+const olderNote = "older version, Homebrew's choice"
+
+// olderVersion reports an update to an older version than the one installed,
+// as when Homebrew moved openssl@3 back to its long-term 3.5 line.
+func olderVersion(r Row) bool {
+	return r.Installed != "" && r.Available != "" && compareVersions(r.Available, r.Installed) < 0
 }
 
 func sortRows(rows []Row) {
@@ -177,9 +189,9 @@ func parseMasOutdated(out string) []Row {
 	for line := range strings.Lines(out) {
 		line = strings.TrimRight(line, "\r\n")
 		if m := masWithVersions.FindStringSubmatch(line); m != nil {
-			rows = append(rows, Row{Kind: "store", ID: m[1], Name: m[2], Installed: m[3], Available: m[4], Selected: true})
+			rows = append(rows, Row{Kind: "store", ID: m[1], Name: m[2], Installed: m[3], Available: m[4]})
 		} else if m := masIDAndName.FindStringSubmatch(line); m != nil {
-			rows = append(rows, Row{Kind: "store", ID: m[1], Name: m[2], Selected: true})
+			rows = append(rows, Row{Kind: "store", ID: m[1], Name: m[2]})
 		}
 	}
 	sortRows(rows)

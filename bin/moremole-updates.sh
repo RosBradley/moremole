@@ -1,9 +1,10 @@
 #!/bin/bash
 # moremole - Software updates.
 # Lists updates for Homebrew apps and command-line tools, App Store apps,
-# macOS, and apps installed without Homebrew that Homebrew has a newer
-# version of; then installs the ones picked. moremole-updates-go does the
-# scanning; this script shows the list and runs the updates.
+# macOS, and apps installed without Homebrew, either from Homebrew's newer
+# copy or from the app's own updater; then installs the ones picked.
+# moremole-updates-go does the scanning; this script shows the list and runs
+# the updates.
 
 set -euo pipefail
 
@@ -34,8 +35,6 @@ if [[ "${MOLE_TEST_MODE:-0}" == "1" ]]; then
 fi
 readonly UPDATES_SETTINGS_URL="x-apple.systempreferences:com.apple.Software-Update-Settings.extension"
 readonly UPDATES_FIELD_SEP=$'\x1f'
-# The order kinds are listed and installed in.
-readonly UPDATES_KIND_ORDER=(app takeover store tool macos macos-settings)
 
 # Scan results, one index per update.
 U_KIND=()
@@ -43,7 +42,6 @@ U_ID=()
 U_NAME=()
 U_FROM=()
 U_TO=()
-U_SEL=()
 U_NOTE=()
 NOTICE_KEYS=()
 NOTICE_TEXTS=()
@@ -53,6 +51,8 @@ total_updated=0
 total_failed=0
 UPDATE_FAILURES=()
 SETTINGS_ITEMS=()
+OPEN_INDICES=()
+OPENED_NAMES=()
 
 cleanup() {
     if [[ -n "$UPDATES_MACOS_PID" ]]; then
@@ -69,9 +69,9 @@ show_updates_help() {
 Usage: moremole updates [OPTIONS]
 
 Find and install updates for Homebrew apps and command-line tools,
-App Store apps (with mas), macOS, and apps installed without Homebrew
-that Homebrew has a newer version of. You pick which to install;
-Homebrew and App Store apps start selected.
+App Store apps (with mas), macOS, and apps installed without Homebrew:
+Homebrew's newer copy, or the app's own updater, which opens the app.
+The list is A-Z and nothing starts selected; you pick.
 
 Options:
   -n, --dry-run     List available updates without installing anything
@@ -96,11 +96,11 @@ find_tool() {
     return 1
 }
 
-# Read helper rows ("kind id name installed available selected note") from
-# standard input into the scan arrays; notices go to the notice arrays.
+# Read helper rows ("kind id name installed available note") from standard
+# input into the scan arrays; notices go to the notice arrays.
 load_update_rows() {
-    local kind id name from to sel note
-    while IFS="$UPDATES_FIELD_SEP" read -r kind id name from to sel note || [[ -n "${kind:-}" ]]; do
+    local kind id name from to note
+    while IFS="$UPDATES_FIELD_SEP" read -r kind id name from to note || [[ -n "${kind:-}" ]]; do
         [[ -n "$kind" ]] || continue
         if [[ "$kind" == "notice" ]]; then
             NOTICE_KEYS+=("$id")
@@ -112,7 +112,6 @@ load_update_rows() {
         U_NAME+=("$name")
         U_FROM+=("$from")
         U_TO+=("$to")
-        U_SEL+=("$sel")
         U_NOTE+=("$note")
     done
 }
@@ -141,28 +140,28 @@ drop_notice() {
     NOTICE_TEXTS=("${texts[@]+"${texts[@]}"}")
 }
 
-# Put the scan arrays in UPDATES_KIND_ORDER, keeping each kind's own order.
+# Put the scan arrays in A-Z order by name, whatever their source; each row
+# shows where it comes from.
 order_update_rows() {
-    local -a o_kind=() o_id=() o_name=() o_from=() o_to=() o_sel=() o_note=()
-    local wanted i
-    for wanted in "${UPDATES_KIND_ORDER[@]}"; do
+    local -a o_kind=() o_id=() o_name=() o_from=() o_to=() o_note=()
+    local i _name
+    while IFS=$'\t' read -r _name i; do
+        o_kind+=("${U_KIND[i]}")
+        o_id+=("${U_ID[i]}")
+        o_name+=("${U_NAME[i]}")
+        o_from+=("${U_FROM[i]}")
+        o_to+=("${U_TO[i]}")
+        o_note+=("${U_NOTE[i]}")
+    done < <(
         for ((i = 0; i < ${#U_KIND[@]}; i++)); do
-            [[ "${U_KIND[i]}" == "$wanted" ]] || continue
-            o_kind+=("${U_KIND[i]}")
-            o_id+=("${U_ID[i]}")
-            o_name+=("${U_NAME[i]}")
-            o_from+=("${U_FROM[i]}")
-            o_to+=("${U_TO[i]}")
-            o_sel+=("${U_SEL[i]}")
-            o_note+=("${U_NOTE[i]}")
-        done
-    done
+            printf '%s\t%s\n' "${U_NAME[i]}" "$i"
+        done | LC_ALL=C sort -f -s -t $'\t' -k1,1
+    )
     U_KIND=("${o_kind[@]+"${o_kind[@]}"}")
     U_ID=("${o_id[@]+"${o_id[@]}"}")
     U_NAME=("${o_name[@]+"${o_name[@]}"}")
     U_FROM=("${o_from[@]+"${o_from[@]}"}")
     U_TO=("${o_to[@]+"${o_to[@]}"}")
-    U_SEL=("${o_sel[@]+"${o_sel[@]}"}")
     U_NOTE=("${o_note[@]+"${o_note[@]}"}")
 }
 
@@ -190,11 +189,9 @@ scan_updates() {
     spin "Checking App Store apps..."
     load_update_rows < <(run_helper store)
     unspin
-    if ! has_notice homebrew-missing; then
-        spin "Checking apps installed without Homebrew..."
-        load_update_rows < <(run_helper takeover)
-        unspin
-    fi
+    spin "Checking apps installed without Homebrew..."
+    load_update_rows < <(run_helper apps)
+    unspin
     spin "Checking macOS updates..."
     wait "$UPDATES_MACOS_PID" 2> /dev/null || true
     UPDATES_MACOS_PID=""
@@ -244,6 +241,7 @@ kind_label() {
         takeover) printf 'Move to Homebrew' ;;
         store) printf 'App Store' ;;
         tool) printf 'Command-line tool' ;;
+        feed) printf 'Own updater' ;;
         macos | macos-settings) printf 'macOS' ;;
         *) printf '%s' "$1" ;;
     esac
@@ -336,41 +334,32 @@ update_row_text() {
 # Without a terminal, or with --dry-run, list the updates and stop.
 print_update_list() {
     measure_columns
-    local i marker
+    local i
     echo -e "${PURPLE_BOLD}${#U_KIND[@]} updates available${NC}"
     for ((i = 0; i < ${#U_KIND[@]}; i++)); do
-        marker="○"
-        [[ "${U_SEL[i]}" == "1" ]] && marker="●"
-        printf '  %s %s\n' "$marker" "$(update_row_text "$i")"
+        printf '  %s\n' "$(update_row_text "$i")"
     done
-    printf '\n%s● starts selected, ○ starts unselected.%s\n' "$GRAY" "$NC"
 }
 
 select_updates() {
     measure_columns
-    local -a rows=() preselected=()
+    local -a rows=()
     local i
     for ((i = 0; i < ${#U_KIND[@]}; i++)); do
         rows+=("$(update_row_text "$i")")
-        [[ "${U_SEL[i]}" == "1" ]] && preselected+=("$i")
     done
-    MOLE_PRESELECTED_INDICES=$(
-        IFS=','
-        printf '%s' "${preselected[*]+"${preselected[*]}"}"
-    )
-    export MOLE_PRESELECTED_INDICES
     export _MOLE_MENU_SELECT_ALL=true
 
     MOLE_SELECTION_RESULT=""
     local rc=0
     paginated_multi_select "Select updates to install" "${rows[@]}" || rc=$?
-    unset MOLE_PRESELECTED_INDICES _MOLE_MENU_SELECT_ALL
+    unset _MOLE_MENU_SELECT_ALL
     [[ $rc -eq 0 && -n "$MOLE_SELECTION_RESULT" ]]
 }
 
 confirm_updates() {
     local -a indices=("$@")
-    local idx has_app=false has_takeover=false has_store=false has_macos=false has_settings=false
+    local idx has_app=false has_takeover=false has_store=false has_macos=false has_settings=false has_feed=false
     echo -e "${PURPLE_BOLD}Updates to install:${NC}"
     for idx in "${indices[@]}"; do
         printf '  %s%s%s %s %s%s · %s%s\n' "$GREEN" "$ICON_SUCCESS" "$NC" \
@@ -381,6 +370,7 @@ confirm_updates() {
             store) has_store=true ;;
             macos) has_macos=true ;;
             macos-settings) has_settings=true ;;
+            feed) has_feed=true ;;
         esac
     done
     echo ""
@@ -398,6 +388,9 @@ confirm_updates() {
     fi
     if [[ "$has_settings" == "true" ]]; then
         echo -e "${GRAY}Updates that restart the Mac open Software Update in System Settings.${NC}"
+    fi
+    if [[ "$has_feed" == "true" ]]; then
+        echo -e "${GRAY}Apps with their own updater open at the end; it installs the update.${NC}"
     fi
     echo -ne "${PURPLE}${ICON_ARROW}${NC} Install ${#indices[@]} updates  ${GREEN}Enter${NC} confirm, ${GRAY}ESC${NC} cancel: "
 
@@ -438,6 +431,16 @@ install_update() {
     case "$kind" in
         macos-settings)
             SETTINGS_ITEMS+=("${U_NAME[idx]}")
+            return 0
+            ;;
+        feed)
+            # The app's own updater checks the download's signature; opening
+            # the app hands the update to it.
+            if [[ "$id" != /*.app || ! -d "$id" ]]; then
+                record_update "$idx" false "app not found"
+                return 0
+            fi
+            OPEN_INDICES+=("$idx")
             return 0
             ;;
         app | tool | takeover)
@@ -495,6 +498,14 @@ install_updates() {
             log_operation "$MOLE_CURRENT_COMMAND" "SKIPPED" "$item" "opened Software Update in System Settings"
         done
     fi
+    for idx in "${OPEN_INDICES[@]+"${OPEN_INDICES[@]}"}"; do
+        if "$UPDATES_OPEN" "${U_ID[idx]}" 2> /dev/null; then
+            OPENED_NAMES+=("${U_NAME[idx]}")
+            log_operation "$MOLE_CURRENT_COMMAND" "SKIPPED" "${U_NAME[idx]}" "opened for its own updater"
+        else
+            record_update "$idx" false "could not open the app"
+        fi
+    done
     log_operation_session_end "$MOLE_CURRENT_COMMAND" "$total_updated" 0
 }
 
@@ -505,10 +516,15 @@ show_updates_summary() {
         heading="Some updates did not install"
     elif [[ $total_updated -eq 0 ]]; then
         heading="Finish in System Settings"
+        if [[ ${#OPENED_NAMES[@]} -gt 0 && ${#SETTINGS_ITEMS[@]} -gt 0 ]]; then
+            heading="Finish in System Settings and each app"
+        elif [[ ${#OPENED_NAMES[@]} -gt 0 ]]; then
+            heading="Finish in each app"
+        fi
     fi
     if [[ $total_updated -gt 0 ]]; then
         details+=("Updated ${GREEN}$total_updated${NC}")
-    elif [[ ${#SETTINGS_ITEMS[@]} -eq 0 ]]; then
+    elif [[ ${#SETTINGS_ITEMS[@]} -eq 0 && ${#OPENED_NAMES[@]} -eq 0 ]]; then
         details+=("Nothing was updated")
     fi
     local item
@@ -521,6 +537,14 @@ show_updates_summary() {
             names+=", $item"
         done
         details+=("Opened Software Update for: $(mole_terminal_safe_text "$names")")
+    fi
+    if [[ ${#OPENED_NAMES[@]} -gt 0 ]]; then
+        local names="${OPENED_NAMES[0]}"
+        for item in "${OPENED_NAMES[@]:1}"; do
+            names+=", $item"
+        done
+        details+=("Opened for their own updater: $(mole_terminal_safe_text "$names")")
+        details+=("If an app does not offer the update, choose Check for Updates in its menu")
     fi
     print_summary_block "$heading" "${details[@]}"
     printf '\n'

@@ -5,13 +5,14 @@
 // Each subcommand prints one row per update, fields separated by the ASCII
 // unit separator (0x1f) so empty fields survive a shell read:
 //
-//	kind  id  name  installed  available  selected  note
+//	kind  id  name  installed  available  note
 //
 // kind is app (Homebrew cask), tool (Homebrew formula), store (App Store app),
 // macos (installable from Terminal), macos-settings (needs System Settings),
-// takeover (an app Homebrew can replace with a newer version) or notice (a
-// message for the user, with its key in id and its text in note). selected is
-// 1 when the update starts out selected.
+// takeover (an app Homebrew can replace with a newer version), feed (an app
+// whose own updater has a newer version; id is the app's path) or notice (a
+// message for the user, with its key in id and its text in note). Nothing
+// starts selected: the user picks.
 package main
 
 import (
@@ -34,16 +35,11 @@ type Row struct {
 	Name      string
 	Installed string
 	Available string
-	Selected  bool
 	Note      string
 }
 
 func (r Row) String() string {
-	selected := "0"
-	if r.Selected {
-		selected = "1"
-	}
-	fields := []string{r.Kind, r.ID, r.Name, r.Installed, r.Available, selected, r.Note}
+	fields := []string{r.Kind, r.ID, r.Name, r.Installed, r.Available, r.Note}
 	for i, f := range fields {
 		fields[i] = strings.Map(func(c rune) rune {
 			if c == '\t' || c == '\n' || c == '\r' || c == 0x1f {
@@ -104,7 +100,7 @@ var homebrewDirs = []string{"/opt/homebrew/bin", "/usr/local/bin"}
 func findBrew() string { return findProgram("brew", homebrewDirs...) }
 
 func usage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "Usage: moremole-updates-go brew|store|macos|takeover")
+	_, _ = fmt.Fprintln(w, "Usage: moremole-updates-go brew|store|macos|apps")
 }
 
 func main() {
@@ -120,8 +116,8 @@ func main() {
 		rows = scanAppStore()
 	case "macos":
 		rows = scanMacOS()
-	case "takeover":
-		rows = scanTakeover()
+	case "apps":
+		rows = scanApps()
 	case "-h", "--help":
 		usage(os.Stdout)
 		return

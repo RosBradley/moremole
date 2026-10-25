@@ -101,7 +101,8 @@ run_slim_selector() {
 }
 
 @test "slim name sorting keeps identities when displayed prefixes match" {
-	run_slim_selector CHAR:s DOWN ENTER
+	# MoreMole: the list opens A-Z, so no S is needed.
+	run_slim_selector DOWN ENTER
 	[[ "$output" == *"RESULT=1 RC=0"* ]] || return 1
 }
 

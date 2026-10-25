@@ -492,6 +492,9 @@ paginated_multi_select() {
 
     draw_header() {
         printf "\033[1;1H" >&2
+        # MoreMole: the title stays on the first row and the search line
+        # always shows on the second, where the list used to leave a gap.
+        printf "\r\033[2K${PURPLE_BOLD}%s${NC}  ${GRAY}%d/%d selected${NC}\n" "${title}" "$selected_count" "$total_items" >&2
         if [[ -n "$filter_text" ]]; then
             local marker=""
             [[ -n "${MOLE_READ_KEY_FORCE_CHAR:-}" ]] && marker="_"
@@ -514,7 +517,7 @@ paginated_multi_select() {
         elif [[ -n "${MOLE_READ_KEY_FORCE_CHAR:-}" ]]; then
             printf '%b' "\r\033[2K${YELLOW}/ Search: _ ${NC}${GRAY}(type to search)${NC}\n" >&2
         else
-            printf "\r\033[2K${PURPLE_BOLD}%s${NC}  ${GRAY}%d/%d selected${NC}\n" "${title}" "$selected_count" "$total_items" >&2
+            printf '%b' "\r\033[2K${GRAY}Search: press / and type${NC}\n" >&2
         fi
     }
 
@@ -636,8 +639,6 @@ paginated_multi_select() {
             [[ $cursor_pos -lt 0 ]] && cursor_pos=0
         fi
 
-        printf '%b' "${clear_line}\n" >&2
-
         # Items for current window
         local start_idx=$top_index
         local end_idx=$((top_index + items_per_page - 1))
@@ -688,6 +689,17 @@ paginated_multi_select() {
                 continue
             fi
         fi
+
+        # MoreMole: moving through the list leaves the search line, so Space
+        # selects and Enter saves; the search stays applied.
+        case "$key" in
+            UP | DOWN | LEFT | RIGHT | TOP | BOTTOM)
+                if [[ -n "${MOLE_READ_KEY_FORCE_CHAR:-}" ]]; then
+                    unset MOLE_READ_KEY_FORCE_CHAR
+                    need_full_redraw=true
+                fi
+                ;;
+        esac
 
         case "$key" in
             "QUIT")
