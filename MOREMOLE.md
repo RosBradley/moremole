@@ -85,6 +85,7 @@ Every command works from the command line and in scripts as in Mole: same comman
 
 - Move with the arrow keys and press Enter. Preview shows what a command would do without doing it.
 - A bar at the bottom of the window, under a divider, describes the highlighted item and lists the keys, as on the command screen.
+- The menu has a screen of its own, the terminal's alternate screen, as full-screen apps such as `vim` and `htop` do. Q returns you to the terminal as it was before `mm`, history included, and terminal marks such as iTerm2's prompt marks don't show on the menu. Commands return to the menu's screen when they end. Update MoreMole and T (Touch ID) leave it first, so what they print stays on the terminal.
 - Software removal is Mole's Uninstall, next to Software updates.
 - 1 to 5 still start Clean, Software removal (Uninstall), Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter or Q; T, U and Q work as before.
 - The help screen and update notices name commands `moremole ...` instead of `mo ...`.
