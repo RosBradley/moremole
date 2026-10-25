@@ -197,11 +197,27 @@ mole_git_ls_files() {
     shift 3
     local probe_timeout=""
     probe_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_HINT_SCAN_SEC" "$deadline") || return 124
+    local git_bin developer_dir probe_rc=0
+    git_bin=$(command -v git) || return 2
+    if [[ "$git_bin" == /usr/bin/git || "$git_bin" -ef /usr/bin/git ]]; then
+        # The Apple shim opens the CLT installer when tools are absent. Resolve
+        # the real binary without invoking either git or xcrun first.
+        developer_dir="${DEVELOPER_DIR:-}"
+        if [[ -z "$developer_dir" ]]; then
+            developer_dir=$(run_with_timeout "$probe_timeout" /usr/bin/xcode-select -p 2> /dev/null) || probe_rc=$?
+            [[ $probe_rc -le 128 ]] || return "$probe_rc"
+            [[ $probe_rc -eq 0 ]] || return 2
+        fi
+        [[ "$developer_dir" != *.app ]] || developer_dir="$developer_dir/Contents/Developer"
+        git_bin="$developer_dir/usr/bin/git"
+        [[ "$developer_dir" == /* && -x "$git_bin" && ! -L "$git_bin" ]] || return 2
+        probe_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_HINT_SCAN_SEC" "$deadline") || return 124
+    fi
     run_with_timeout "$probe_timeout" \
         env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR \
         -u GIT_LITERAL_PATHSPECS -u GIT_GLOB_PATHSPECS -u GIT_NOGLOB_PATHSPECS -u GIT_ICASE_PATHSPECS \
         GIT_OPTIONAL_LOCKS=0 \
-        git -c core.fsmonitor=false --git-dir="$repo/.git" --work-tree="$repo" -C "$dir" ls-files "$@" 2> /dev/null
+        "$git_bin" -c core.fsmonitor=false --git-dir="$repo/.git" --work-tree="$repo" -C "$dir" ls-files "$@" 2> /dev/null
 }
 
 # The pathspec for a physical path inside repository $1, set in

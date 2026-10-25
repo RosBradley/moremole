@@ -1767,59 +1767,6 @@ _xctest_devices_delete_guard_allows() {
     mole_clean_process_guard _xctest_devices_activity_state "Xcode, XCTest, or Simulator started"
 }
 
-_dev_process_delete_guard_allows() {
-    # safe_clean_guarded passes the leaf currently at its deletion boundary.
-    # Keep it in dynamic scope so compound probes such as the Cargo root guard
-    # can bind that exact object without changing ordinary process probes.
-    local _MOLE_DEV_GUARDED_PATH="${1:-}"
-    mole_clean_process_guard \
-        "$_MOLE_DEV_PROCESS_GUARD_PROBE" \
-        "$_MOLE_DEV_PROCESS_GUARD_FAMILY started" \
-        "${_MOLE_DEV_PROCESS_GUARD_UNKNOWN_REASON:-process state unknown}"
-}
-
-_dev_report_process_guard_stop() {
-    local display_name="$1"
-    local family="$2"
-    local reason="$3"
-
-    if [[ "$reason" == "process state unknown" || "$reason" == "process or cache path state unknown" ]]; then
-        echo -e "  ${GRAY}${ICON_WARNING}${NC} ${display_name} · stopped (${reason})"
-        note_activity
-    else
-        mole_defer_cleanup_family "$family"
-    fi
-}
-
-# Bind a tri-state process probe to safe_clean's post-size boundary. The local
-# guard state is intentionally dynamic so Bash 3.2 callbacks can read it.
-_dev_safe_clean_process_guarded() {
-    local probe="$1"
-    local family="$2"
-    local display_name="$3"
-    shift 3
-    local _MOLE_DEV_PROCESS_GUARD_PROBE="$probe"
-    local _MOLE_DEV_PROCESS_GUARD_FAMILY="$family"
-    local _MOLE_CLEAN_GUARD_REASON="${family} started"
-
-    if ! declare -f safe_clean_guarded > /dev/null 2>&1; then
-        if ! _dev_process_delete_guard_allows; then
-            _dev_report_process_guard_stop "$display_name" "$family" "$_MOLE_CLEAN_GUARD_REASON"
-            return 1
-        fi
-        safe_clean "$@"
-        return $?
-    fi
-
-    local guarded_rc=0
-    safe_clean_guarded _dev_process_delete_guard_allows "$@" || guarded_rc=$?
-    if [[ $guarded_rc -eq 75 ]]; then
-        _dev_report_process_guard_stop "$display_name" "$family" "$_MOLE_CLEAN_GUARD_REASON"
-        return 1
-    fi
-    return "$guarded_rc"
-}
-
 _dev_clean_service_worker_process_guarded() {
     local probe="$1"
     local family="$2"
@@ -5809,11 +5756,11 @@ clean_dev_misc() {
     safe_clean ~/Library/Caches/KSCrash/* "KSCrash reports"
     safe_clean ~/Library/Caches/com.crashlytics.data/* "Crashlytics data"
     if [[ -d ~/Library/Application\ Support/Antigravity ]]; then
-        safe_clean ~/Library/Application\ Support/Antigravity/Cache/* "Antigravity cache"
-        safe_clean ~/Library/Application\ Support/Antigravity/Code\ Cache/* "Antigravity code cache"
-        safe_clean ~/Library/Application\ Support/Antigravity/GPUCache/* "Antigravity GPU cache"
-        safe_clean ~/Library/Application\ Support/Antigravity/DawnGraphiteCache/* "Antigravity Dawn cache"
-        safe_clean ~/Library/Application\ Support/Antigravity/DawnWebGPUCache/* "Antigravity WebGPU cache"
+        mole_safe_clean_app_cache "Antigravity" ~/Library/Application\ Support/Antigravity/Cache/* "Antigravity cache"
+        mole_safe_clean_app_cache "Antigravity" ~/Library/Application\ Support/Antigravity/Code\ Cache/* "Antigravity code cache"
+        mole_safe_clean_app_cache "Antigravity" ~/Library/Application\ Support/Antigravity/GPUCache/* "Antigravity GPU cache"
+        mole_safe_clean_app_cache "Antigravity" ~/Library/Application\ Support/Antigravity/DawnGraphiteCache/* "Antigravity Dawn cache"
+        mole_safe_clean_app_cache "Antigravity" ~/Library/Application\ Support/Antigravity/DawnWebGPUCache/* "Antigravity WebGPU cache"
     fi
     # Antigravity browser profile caches (~/.gemini)
     clean_antigravity_caches
@@ -5821,31 +5768,31 @@ clean_dev_misc() {
     clean_agent_browser_old_chrome
     # Filo (Electron)
     if [[ -d ~/Library/Application\ Support/Filo ]]; then
-        safe_clean ~/Library/Application\ Support/Filo/production/Cache/* "Filo cache"
-        safe_clean ~/Library/Application\ Support/Filo/production/Code\ Cache/* "Filo code cache"
-        safe_clean ~/Library/Application\ Support/Filo/production/GPUCache/* "Filo GPU cache"
-        safe_clean ~/Library/Application\ Support/Filo/production/DawnGraphiteCache/* "Filo Dawn cache"
-        safe_clean ~/Library/Application\ Support/Filo/production/DawnWebGPUCache/* "Filo WebGPU cache"
+        mole_safe_clean_app_cache "Filo" ~/Library/Application\ Support/Filo/production/Cache/* "Filo cache"
+        mole_safe_clean_app_cache "Filo" ~/Library/Application\ Support/Filo/production/Code\ Cache/* "Filo code cache"
+        mole_safe_clean_app_cache "Filo" ~/Library/Application\ Support/Filo/production/GPUCache/* "Filo GPU cache"
+        mole_safe_clean_app_cache "Filo" ~/Library/Application\ Support/Filo/production/DawnGraphiteCache/* "Filo Dawn cache"
+        mole_safe_clean_app_cache "Filo" ~/Library/Application\ Support/Filo/production/DawnWebGPUCache/* "Filo WebGPU cache"
     fi
     # Claude (Electron)
     if [[ -d ~/Library/Application\ Support/Claude ]]; then
-        safe_clean ~/Library/Application\ Support/Claude/Cache/* "Claude cache"
-        safe_clean ~/Library/Application\ Support/Claude/Code\ Cache/* "Claude code cache"
-        safe_clean ~/Library/Application\ Support/Claude/GPUCache/* "Claude GPU cache"
-        safe_clean ~/Library/Application\ Support/Claude/DawnGraphiteCache/* "Claude Dawn cache"
-        safe_clean ~/Library/Application\ Support/Claude/DawnWebGPUCache/* "Claude WebGPU cache"
-        safe_clean ~/Library/Application\ Support/Claude/sentry/* "Claude sentry cache"
+        mole_safe_clean_app_cache "Claude" ~/Library/Application\ Support/Claude/Cache/* "Claude cache"
+        mole_safe_clean_app_cache "Claude" ~/Library/Application\ Support/Claude/Code\ Cache/* "Claude code cache"
+        mole_safe_clean_app_cache "Claude" ~/Library/Application\ Support/Claude/GPUCache/* "Claude GPU cache"
+        mole_safe_clean_app_cache "Claude" ~/Library/Application\ Support/Claude/DawnGraphiteCache/* "Claude Dawn cache"
+        mole_safe_clean_app_cache "Claude" ~/Library/Application\ Support/Claude/DawnWebGPUCache/* "Claude WebGPU cache"
+        mole_safe_clean_app_cache "Claude" ~/Library/Application\ Support/Claude/sentry/* "Claude sentry cache"
     fi
     # Qoder (VS Code fork, Electron)
     if [[ -d ~/Library/Application\ Support/Qoder ]]; then
-        safe_clean ~/Library/Application\ Support/Qoder/Cache/* "Qoder cache"
-        safe_clean ~/Library/Application\ Support/Qoder/CachedData/* "Qoder cached data"
-        safe_clean ~/Library/Application\ Support/Qoder/CachedExtensionVSIXs/* "Qoder extension cache"
-        safe_clean ~/Library/Application\ Support/Qoder/Code\ Cache/* "Qoder code cache"
-        safe_clean ~/Library/Application\ Support/Qoder/GPUCache/* "Qoder GPU cache"
-        safe_clean ~/Library/Application\ Support/Qoder/DawnGraphiteCache/* "Qoder Dawn cache"
-        safe_clean ~/Library/Application\ Support/Qoder/DawnWebGPUCache/* "Qoder WebGPU cache"
-        safe_clean ~/Library/Application\ Support/Qoder/logs/* "Qoder logs"
+        mole_safe_clean_app_cache "Qoder" ~/Library/Application\ Support/Qoder/Cache/* "Qoder cache"
+        mole_safe_clean_app_cache "Qoder" ~/Library/Application\ Support/Qoder/CachedData/* "Qoder cached data"
+        mole_safe_clean_app_cache "Qoder" ~/Library/Application\ Support/Qoder/CachedExtensionVSIXs/* "Qoder extension cache"
+        mole_safe_clean_app_cache "Qoder" ~/Library/Application\ Support/Qoder/Code\ Cache/* "Qoder code cache"
+        mole_safe_clean_app_cache "Qoder" ~/Library/Application\ Support/Qoder/GPUCache/* "Qoder GPU cache"
+        mole_safe_clean_app_cache "Qoder" ~/Library/Application\ Support/Qoder/DawnGraphiteCache/* "Qoder Dawn cache"
+        mole_safe_clean_app_cache "Qoder" ~/Library/Application\ Support/Qoder/DawnWebGPUCache/* "Qoder WebGPU cache"
+        mole_safe_clean_app_cache "Qoder" ~/Library/Application\ Support/Qoder/logs/* "Qoder logs"
     fi
     # Prisma ORM engine binaries cache
     safe_clean ~/.cache/prisma/* "Prisma cache"

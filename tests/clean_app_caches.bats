@@ -31,6 +31,84 @@ make_fusion_version_dir() {
     chmod +x "$version_dir/$app_name/Contents/MacOS/Autodesk Fusion"
 }
 
+assert_cache_final_owner_guard() {
+    run env HOME="$BATS_TEST_TMPDIR/cache-home" PROJECT_ROOT="$PROJECT_ROOT" \
+        scenario="$1" family="$2" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME"
+source "$PROJECT_ROOT/bin/clean.sh"
+DRY_RUN=false
+if [[ "$family" == shared ]]; then
+    fixture_entry="$HOME/Library/Application Support/CodeBuddyExtension/Cache/entry"
+else
+    fixture_entry="$HOME/Library/Application Support/discord/Cache/entry"
+fi
+mkdir -p "${fixture_entry%/*}"
+printf payload > "$fixture_entry"
+mkdir -p "$HOME/authored"
+printf keep > "$HOME/authored/entry"
+pgrep() {
+    printf '%s %s\n' "$1" "${2:-}" >> "$HOME/probes"
+    [[ "$scenario" != initial-running ]] || return 0
+    if [[ -f "$HOME/final-stage" || "$scenario" == post-size-swap ]]; then
+        case "$scenario" in
+            final-swap|post-size-swap)
+                if [[ ! -L "${fixture_entry%/*}" ]]; then
+                    mv "${fixture_entry%/*}" "${fixture_entry%/*}.old"
+                    ln -s "$HOME/authored" "${fixture_entry%/*}"
+                fi
+                return 1 ;;
+            final-running|outer-start) return 0 ;;
+            final-unknown) return 2 ;;
+        esac
+    fi
+    return 1
+}
+note_activity() { :; }
+get_cleanup_path_size_kb() { printf '1\n'; }
+clean_editor_obsolete_extensions() { :; }
+eval "$(declare -f validate_path_for_deletion | sed '1s/validate_path_for_deletion/_original_validate/')"
+validate_path_for_deletion() {
+    _original_validate "$@" || return $?
+    [[ "$scenario" == outer-* ]] || touch "$HOME/final-stage"
+}
+outer_guard() {
+    printf 'outer\n' >> "$HOME/outer-calls"
+    case "$scenario" in
+        outer-deny) return 1 ;;
+        outer-signal) return 130 ;;
+        outer-start) touch "$HOME/final-stage" ;;
+    esac
+    return 0
+}
+_MOLE_SAFE_REMOVE_FINAL_GUARD=outer_guard
+rc=0
+if [[ "$family" == shared ]]; then
+    clean_code_editors || rc=$?
+else
+    mole_safe_clean_app_cache Discord "$fixture_entry" 'Discord cache' || rc=$?
+fi
+[[ "$_MOLE_SAFE_REMOVE_FINAL_GUARD" == outer_guard ]] || exit 1
+case "$scenario" in
+    idle) [[ ! -e "$fixture_entry" ]] || exit 1 ;;
+    *) [[ -f "$fixture_entry" ]] || exit 1 ;;
+esac
+if [[ "$scenario" == outer-* || "$scenario" == idle ]]; then
+    [[ -s "$HOME/outer-calls" ]] || exit 1
+fi
+if [[ "$scenario" == final-swap || "$scenario" == post-size-swap ]]; then
+    [[ -f "$HOME/authored/entry" && -f "${fixture_entry%/*}.old/entry" ]] || exit 1
+fi
+if [[ "$scenario" == outer-signal ]]; then
+    [[ "$rc" == 130 && "${MOLE_CLEAN_CANCEL_STATUS:-0}" == 130 ]] || exit 1
+fi
+printf 'PASS\n'
+EOF
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *PASS* ]]
+}
+
+
 @test "clean_xcode_tools skips derived data when Xcode running" {
     local fixture_home="$HOME/xcode-running-derived-data"
     run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
@@ -763,7 +841,9 @@ EOF
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 mkdir -p ~/Library/Application\ Support/Microsoft/Teams
+source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/app_caches.sh"
+pgrep() { return 1; }
 safe_clean() { echo "$2"; }
 clean_communication_apps
 EOF
@@ -771,6 +851,39 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"Microsoft Teams legacy cache"* ]] || return 1
     [[ "$output" == *"Microsoft Teams legacy logs"* ]]
+}
+
+@test "named Application Support caches keep running and unknown owners and recheck after sizing" {
+    for mode in running unknown starts-during-size idle; do
+        run env HOME="$BATS_TEST_TMPDIR/named-$mode" PROJECT_ROOT="$PROJECT_ROOT" MODE="$mode" \
+            MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME/Library/Application Support/discord/Cache"
+target="$HOME/Library/Application Support/discord/Cache/entry"
+touch "$target"
+source "$PROJECT_ROOT/bin/clean.sh"
+DRY_RUN=false
+note_activity() { :; }
+pgrep() {
+    case "$MODE" in
+        running) return 0 ;;
+        unknown) return 2 ;;
+        starts-during-size) [[ -e "$HOME/started" ]] ;;
+        idle) return 1 ;;
+    esac
+}
+get_cleanup_path_size_kb() { touch "$HOME/started"; echo 1; }
+safe_remove() { printf 'SINK:%s\n' "$1"; }
+clean_communication_apps || true
+[[ -f "$HOME/Library/Application Support/discord/Cache/entry" ]] || exit 1
+EOF
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        if [[ "$mode" == idle ]]; then
+            [[ "$output" == *"SINK:"*"discord/Cache/entry"* ]] || { echo "$output"; return 1; }
+        else
+            [[ "$output" != *"SINK:"* ]] || { echo "$mode: $output"; return 1; }
+        fi
+    done
 }
 
 @test "clean_communication_apps cleans Feishu embedded webview Service Worker per profile" {
@@ -1216,6 +1329,7 @@ EOF
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/app_caches.sh"
+pgrep() { return 1; }
 safe_clean() { echo "CLEAN:$1|$2"; }
 clean_code_editors
 EOF
@@ -2990,6 +3104,7 @@ EOF
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/app_caches.sh"
+pgrep() { return 1; }
 safe_clean() { printf 'CLEAN:%s\n' "$1"; }
 clean_code_editors
 EOF
@@ -3019,4 +3134,135 @@ grep -qxF "$cache/recognize" "$HOME/candidates" || exit 1
 if grep -E 'High Quality Media|Proxy Media|prerender|RemuxCache|MotionBlurCache|segmentPrerenderCache|Spotify|com.spotify.client' "$HOME/candidates"; then exit 1; fi
 SH
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "named app cache guard escapes literal names and rechecks every removal" {
+    run env HOME="$BATS_TEST_TMPDIR/named-literal" PROJECT_ROOT="$PROJECT_ROOT" \
+        MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME/Library/Application Support/App[1]/Cache"
+touch "$HOME/Library/Application Support/App[1]/Cache/one" "$HOME/Library/Application Support/App[1]/Cache/two"
+source "$PROJECT_ROOT/bin/clean.sh"
+DRY_RUN=false
+note_activity() { :; }
+pgrep() {
+    [[ "$2" == 'App\[1\]' || "$2" == '/App\[1\][.]app/' ]] || { echo BAD_PATTERN >&2; return 2; }
+    [[ -e "$HOME/started" ]]
+}
+get_cleanup_path_size_kb() { echo 1; }
+safe_remove() { echo "SINK:$1"; touch "$HOME/started"; }
+mole_safe_clean_app_cache 'App[1]' "$HOME/Library/Application Support/App[1]/Cache/one" \
+    "$HOME/Library/Application Support/App[1]/Cache/two" 'App cache'
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"SINK:"*"/one"* ]] || return 1
+    [[ "$output" != *"SINK:"*"/two"* ]] || return 1
+    [[ "$output" != *BAD_PATTERN* ]]
+}
+
+@test "CodeBuddy extension caches preserve each shared owner and late starts" {
+    local owner phase
+    for owner in CodeBuddy 'CodeBuddy CN' WorkBuddy Unrelated; do
+        for phase in initial after-size; do
+            run env HOME="$BATS_TEST_TMPDIR/shared-$owner-$phase" PROJECT_ROOT="$PROJECT_ROOT" \
+                OWNER="$owner" PHASE="$phase" MOLE_TEST_NO_AUTH=1 /bin/bash <<'SH'
+set -euo pipefail
+mkdir -p "$HOME/Library/Application Support/CodeBuddyExtension/Cache" "$HOME/Library/Application Support/CodeBuddyExtension/logs"
+touch "$HOME/Library/Application Support/CodeBuddyExtension/Cache/entry" "$HOME/Library/Application Support/CodeBuddyExtension/logs/entry"
+source "$PROJECT_ROOT/bin/clean.sh"
+DRY_RUN=false
+note_activity() { :; }
+pgrep() {
+    [[ "$PHASE" == initial || -e "$HOME/sized" ]] || return 1
+    case "$1" in
+        -x) [[ "$OWNER" =~ ^($2)$ ]] ;;
+        -f) [[ "/Applications/$OWNER.app/Contents/MacOS/Electron" =~ $2 ]] ;;
+        *) return 2 ;;
+    esac
+}
+get_cleanup_path_size_kb() { touch "$HOME/sized"; echo 1; }
+safe_remove() { printf 'SINK:%s\n' "$1"; }
+clean_editor_obsolete_extensions() { :; }
+clean_code_editors
+SH
+            [ "$status" -eq 0 ] || { echo "$owner/$phase: $output"; return 1; }
+            if [[ "$owner" == Unrelated ]]; then
+                [[ "$output" == *SINK:*CodeBuddyExtension/Cache/entry* && "$output" == *SINK:*CodeBuddyExtension/logs/entry* ]] || { echo "$output"; return 1; }
+            else
+                [[ "$output" != *SINK:* ]] || { echo "$owner/$phase: $output"; return 1; }
+            fi
+        done
+    done
+}
+
+@test "cache final sink named initial-running" {
+    assert_cache_final_owner_guard initial-running named
+}
+
+@test "cache final sink named final-running" {
+    assert_cache_final_owner_guard final-running named
+}
+
+@test "cache final sink named final-unknown" {
+    assert_cache_final_owner_guard final-unknown named
+}
+
+@test "cache final sink named idle" {
+    assert_cache_final_owner_guard idle named
+}
+
+@test "cache final sink named outer-deny" {
+    assert_cache_final_owner_guard outer-deny named
+}
+
+@test "cache final sink named outer-signal" {
+    assert_cache_final_owner_guard outer-signal named
+}
+
+@test "cache final sink named outer-start" {
+    assert_cache_final_owner_guard outer-start named
+}
+
+@test "cache final sink shared initial-running" {
+    assert_cache_final_owner_guard initial-running shared
+}
+
+@test "cache final sink shared final-running" {
+    assert_cache_final_owner_guard final-running shared
+}
+
+@test "cache final sink shared final-unknown" {
+    assert_cache_final_owner_guard final-unknown shared
+}
+
+@test "cache final sink shared idle" {
+    assert_cache_final_owner_guard idle shared
+}
+
+@test "cache final sink shared outer-deny" {
+    assert_cache_final_owner_guard outer-deny shared
+}
+
+@test "cache final sink shared outer-signal" {
+    assert_cache_final_owner_guard outer-signal shared
+}
+
+@test "cache final sink shared outer-start" {
+    assert_cache_final_owner_guard outer-start shared
+}
+
+@test "cache final sink named final-swap" {
+    assert_cache_final_owner_guard final-swap named
+}
+
+@test "cache final sink shared final-swap" {
+    assert_cache_final_owner_guard final-swap shared
+}
+
+@test "cache final sink named post-size-swap" {
+    assert_cache_final_owner_guard post-size-swap named
+}
+
+@test "cache final sink shared post-size-swap" {
+    assert_cache_final_owner_guard post-size-swap shared
 }

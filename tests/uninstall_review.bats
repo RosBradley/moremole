@@ -454,3 +454,34 @@ SH
     run_non_tty_confirmation null 1
     run_non_tty_confirmation piped 1
 }
+
+@test "with-data emulator holdbacks stay selectable and ordinary data stays selected" {
+    run env HOME="$HOME/emulator-holdbacks" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+for name in Dolphin PCSX2 RetroArch PrismLauncher Minecraft Citra Cemu Ryujinx PPSSPP RPCS3 MultiMC ATLauncher; do
+    path="$HOME/Library/Application Support/$name"
+    mkdir -p "$path"
+    found=$(find_app_files "org.example.$name" "$name")
+    grep -Fx "$path" <<< "$found" || exit 1
+    _uninstall_data_preselect_holdback "$path" || exit 1
+    _uninstall_data_preselect_holdback "$path/saves" || exit 1
+    if _uninstall_data_preselect_holdback "$path-backup"; then exit 1; fi
+done
+if _uninstall_data_preselect_holdback "$HOME/Library/Application Support/ExampleChat"; then exit 1; fi
+files=$(printf '%s\n' "$HOME/Library/Application Support/PCSX2" "$HOME/Library/Application Support/ExampleChat")
+encoded=$(printf '%s' "$files" | base64 | tr -d '\n')
+_review_original_details=("PCSX2|$HOME/Applications/PCSX2.app|net.pcsx2.PCSX2|1|$encoded|")
+_review_personal_paths=() _review_selected_paths=() _review_auto_files=() _review_personal_files=() _review_app_sizes=()
+calculate_total_size() { printf '1\n'; }
+MOLE_UNINSTALL_WITH_DATA=1 _uninstall_prepare_data_review
+[[ "${_review_personal_paths[*]}" == *PCSX2* ]] || exit 1
+[[ "${_review_selected_paths[*]}" != *PCSX2* ]] || exit 1
+[[ "${_review_selected_paths[*]}" == *ExampleChat* ]] || exit 1
+_review_selected_paths+=("$HOME/Library/Application Support/PCSX2")
+_uninstall_apply_data_selection
+[[ "$(decode_file_list "$(cut -d '|' -f 5 <<< "${app_details[0]}")" PCSX2)" == *PCSX2* ]] || exit 1
+SH
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}

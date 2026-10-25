@@ -886,10 +886,11 @@ func renderBatteryCard(batts []BatteryStatus, thermal ThermalStatus, probed bool
 				healthParts = append(healthParts, dangerStyle.Render(label))
 			case "warn":
 				healthParts = append(healthParts, warnStyle.Render(label))
-			default:
+			case "ok":
 				healthParts = append(healthParts, okStyle.Render(label))
 			}
-		} else if b.Health != "" {
+		}
+		if len(healthParts) == 0 && b.Health != "" {
 			healthParts = append(healthParts, b.Health)
 		}
 

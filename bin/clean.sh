@@ -746,28 +746,62 @@ normalize_paths_for_cleanup() {
     return 0
 }
 
+# Measure reclaimable file blocks, not logical lengths. Each root is independent:
+# links outside that root and shared clone blocks stay out of its estimate.
+# This is measurement only; the normal deletion guards still own eligibility.
+_cleanup_path_sizes_kb() {
+    # shellcheck disable=SC2016 # The single-quoted program contains Perl variables.
+    run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" /usr/bin/perl -e '
+        use strict;
+        use warnings;
+        use File::Find;
+        use Fcntl qw(:mode);
+        sub private_bytes {
+            my ($path, $allocated) = @_;
+            # Darwin getattrlist: common FLAGS followed by extended PRIVATESIZE.
+            # FSOPT_NOFOLLOW | FSOPT_ATTR_CMN_EXTENDED. Unsupported filesystems
+            # retain allocated bytes; compressed resource forks do too.
+            my $attrs = pack("SSLLLLL", 5, 0, 0x80040000, 0, 0, 0, 8);
+            my $reply = "\0" x 36;
+            my $name = "$path\0";
+            return $allocated if syscall(220, $name, $attrs, $reply, 36, 0x21) != 0;
+            my ($length, $common, $volume, $dir, $file, $extended, $flags, $private) = unpack("L7Q", $reply);
+            return $allocated if $length < 36 || !($common & 0x40000) || !($extended & 8) || ($flags & 0x20);
+            return $private < $allocated ? $private : $allocated;
+        }
+        for my $root (@ARGV) {
+            my @root_stat = lstat($root);
+            if (!@root_stat || S_ISLNK($root_stat[2])) { print "0\n" or die $!; next; }
+            my %links;
+            my $bytes = 0;
+            my $visit = sub {
+                my $path = $_;
+                my @s = lstat($path);
+                return unless @s;
+                if ($s[0] != $root_stat[0]) { $File::Find::prune = 1; return; }
+                return unless S_ISREG($s[2]);
+                my $allocated = $s[12] * 512;
+                my $size = private_bytes($path, $allocated);
+                if ($s[3] > 1) {
+                    my $key = "$s[0]:$s[1]";
+                    $links{$key} ||= [0, $s[3], $size];
+                    $links{$key}[0]++;
+                } else { $bytes += $size; }
+            };
+            if (S_ISDIR($root_stat[2])) {
+                find({wanted => $visit, no_chdir => 1, follow => 0}, $root);
+            } else { local $_ = $root; $visit->(); }
+            for my $link (values %links) {
+                $bytes += $link->[2] if $link->[0] == $link->[1];
+            }
+            print(int(($bytes + 1023) / 1024), "\n") or die $!;
+        }
+    ' -- "$@" 2> /dev/null
+}
+
 # shellcheck disable=SC2329
 get_cleanup_path_size_kb() {
-    local path="$1"
-
-    # A plain file or a symlink is a single stat. Directories and the
-    # stat-unavailable case fall back to get_path_size_kb. For a regular file
-    # with a zero/invalid stat we also fall back; a symlink reports 0 directly.
-    if [[ -L "$path" || -f "$path" ]] && command -v stat > /dev/null 2>&1; then
-        local bytes
-        bytes=$("$STAT_BSD" -f%z "$path" 2> /dev/null || echo "0")
-        if [[ "$bytes" =~ ^[0-9]+$ && "$bytes" -gt 0 ]]; then
-            echo $(((bytes + 1023) / 1024))
-            return 0
-        fi
-        if [[ -L "$path" ]]; then
-            echo 0
-            return 0
-        fi
-    fi
-
-    # Cleanup totals count what can be freed: readable bytes (see get_path_size_kb).
-    get_path_size_kb "$path" "" readable
+    _cleanup_path_sizes_kb "$1"
 }
 
 # Classification helper for cleanup risk levels
@@ -1008,7 +1042,7 @@ _safe_clean_impl() {
             [[ -d "${existing_paths[i]}" ]] && ((dir_count++))
         done
 
-        # Heuristic: mostly files -> bulk stat is faster than per-file subshells.
+        # Mostly files share one measurement process instead of per-file subshells.
         if [[ $dir_count -lt 5 && ${#existing_paths[@]} -gt 20 ]]; then
             if [[ -t 1 && "$show_spinner" == "false" ]]; then
                 start_section_spinner "Scanning items..."
@@ -1019,8 +1053,7 @@ _safe_clean_impl() {
             local _bytes
             local bulk_stat_file="$temp_dir/bulk_stat"
             local bulk_stat_rc=0
-            run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
-                "$STAT_BSD" -f%z "${existing_paths[@]}" < /dev/null \
+            _cleanup_path_sizes_kb "${existing_paths[@]}" < /dev/null \
                 > "$bulk_stat_file" 2> /dev/null || bulk_stat_rc=$?
             if [[ $bulk_stat_rc -ge 128 ]]; then
                 cleanup_interrupt_rc=$bulk_stat_rc
@@ -1029,9 +1062,15 @@ _safe_clean_impl() {
                 # must not cancel the delete set. Sizes are already 0 here.
                 MOLE_CLEAN_SIZING_TIMEOUTS=$((${MOLE_CLEAN_SIZING_TIMEOUTS:-0} + 1))
             fi
+            if [[ $bulk_stat_rc -ne 0 ]] || ! awk -v expected="${#existing_paths[@]}" '
+                !/^[0-9]+$/ { invalid = 1 }
+                END { exit invalid || NR != expected }
+            ' "$bulk_stat_file"; then
+                : > "$bulk_stat_file"
+            fi
             while IFS= read -r _bytes; do
                 [[ "$_bytes" =~ ^[0-9]+$ ]] || _bytes=0
-                local _kb=$(((_bytes + 1023) / 1024))
+                local _kb=$_bytes
                 if [[ "$_kb" -gt 0 ]]; then
                     echo "$_kb 1" > "$temp_dir/result_${idx}"
                 else
@@ -1042,26 +1081,6 @@ _safe_clean_impl() {
             while [[ $idx -lt ${#existing_paths[@]} ]]; do
                 echo "0 0" > "$temp_dir/result_${idx}"
                 idx=$((idx + 1))
-            done
-            for ((idx = 0; idx < ${#existing_paths[@]}; idx++)); do
-                if [[ -d "${existing_paths[$idx]}" && ! -L "${existing_paths[$idx]}" ]]; then
-                    local _dsize=0
-                    local _dsize_rc=0
-                    _dsize=$(get_cleanup_path_size_kb \
-                        "${existing_paths[$idx]}") || _dsize_rc=$?
-                    if [[ $_dsize_rc -ge 128 ]]; then
-                        cleanup_interrupt_rc=$_dsize_rc
-                        break
-                    elif mole_rc_timeout "$_dsize_rc"; then
-                        MOLE_CLEAN_SIZING_TIMEOUTS=$((${MOLE_CLEAN_SIZING_TIMEOUTS:-0} + 1))
-                    fi
-                    [[ "$_dsize" =~ ^[0-9]+$ ]] || _dsize=0
-                    if [[ "$_dsize" -gt 0 ]]; then
-                        echo "$_dsize 1" > "$temp_dir/result_${idx}"
-                    else
-                        echo "0 0" > "$temp_dir/result_${idx}"
-                    fi
-                fi
             done
         else
             local -a pids=()

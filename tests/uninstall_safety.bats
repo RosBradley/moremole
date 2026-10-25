@@ -1703,3 +1703,165 @@ EOF2
     [[ "$output" == *"STAGING_ONLY_RC=1"* ]] || { echo "$output"; return 1; }
     [[ "$output" == *"HIDDEN_APP_RC=0"* ]] || { echo "$output"; return 1; }
 }
+
+@test "uninstall finds exact updater and crash SDK leaves without shared parents" {
+    run env HOME="$HOME/sdk-leaves" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+for leaf in 'Caches/com.example.Gizmo.ShipIt' 'Caches/gizmo-updater' 'Application Support/Caches/gizmo-updater' 'Caches/com.crashlytics.data/com.example.Gizmo' 'Caches/SentryCrash/Gizmo' 'Caches/KSCrash/Gizmo' 'Application Support/com.bugsnag.Bugsnag/com.example.Gizmo'; do
+    mkdir -p "$HOME/Library/$leaf"
+done
+mkdir -p "$HOME/Library/Caches/com.crashlytics.data/com.other.Gizmo" "$HOME/Library/Caches/Electron-updater"
+result=$(find_app_files com.example.Gizmo Gizmo)
+for leaf in 'Caches/com.example.Gizmo.ShipIt' 'Caches/gizmo-updater' 'Application Support/Caches/gizmo-updater' 'Caches/com.crashlytics.data/com.example.Gizmo' 'Caches/SentryCrash/Gizmo' 'Caches/KSCrash/Gizmo' 'Application Support/com.bugsnag.Bugsnag/com.example.Gizmo'; do
+    grep -Fx "$HOME/Library/$leaf" <<< "$result" || exit 1
+done
+! grep -Fx "$HOME/Library/Caches/com.crashlytics.data" <<< "$result" || exit 1
+[[ "$result" != *com.other.Gizmo* ]] || exit 1
+[[ "$result" != *Electron-updater* ]] || exit 1
+SH
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "uninstall discovers UUID metadata owners and direct native manifests only" {
+    run env HOME="$HOME/metadata-owned" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+app="$HOME/Applications/Gizmo.app"
+container="$HOME/Library/Containers/ABCDEFAB-1234-1234-1234-123456789ABC"
+hosts="$HOME/Library/Application Support/Browser/NativeMessagingHosts"
+mkdir -p "$app/Contents/MacOS" "$container" "$hosts"
+touch "$app/Contents/MacOS/host"
+printf '%s\n' '{"MCMMetadataIdentifier":"com.example.Gizmo"}' > "$container/.com.apple.containermanagerd.metadata.plist"
+printf '{"path":"%s/Contents/MacOS/host"}\n' "$app" > "$hosts/owned.json"
+printf '{"path":"%s/../Other.app/host"}\n' "$app" > "$hosts/escape.json"
+printf '%s\n' '{"path":"/Applications/Other.app/host"}' > "$hosts/other.json"
+result=$(find_app_files com.example.Gizmo Gizmo "$app")
+grep -Fx "$container" <<< "$result"
+grep -Fx "$hosts/owned.json" <<< "$result"
+[[ "$result" != *escape.json* && "$result" != *other.json* ]] || exit 1
+printf '%s\n' '{"MCMMetadataIdentifier":"com.other.Gizmo"}' > "$container/.com.apple.containermanagerd.metadata.plist"
+result=$(find_app_files com.example.Gizmo Gizmo "$app")
+! grep -Fx "$container" <<< "$result" || exit 1
+SH
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "JetBrains selector maps exact leaves and protects differently named siblings" {
+    run env HOME="$HOME/selector-owned" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+app="$HOME/Applications/Custom IDE.app"
+other="$HOME/Applications/Other IDE.app"
+mkdir -p "$app/Contents" "$other/Contents" "$HOME/Library/Caches/JetBrains/IdeaIC2026.2" "$HOME/Library/Caches/JetBrains/IdeaIC2026.20"
+printf '%s\n' '{"JVMOptions":{"Properties":{"idea.paths.selector":"IdeaIC2026.2"}}}' > "$app/Contents/Info.plist"
+/usr/bin/plutil -convert xml1 "$app/Contents/Info.plist"
+cp "$app/Contents/Info.plist" "$other/Contents/Info.plist"
+result=$(find_app_files com.jetbrains.custom 'Custom IDE' "$app")
+grep -Fx "$HOME/Library/Caches/JetBrains/IdeaIC2026.2" <<< "$result"
+[[ "$result" != *IdeaIC2026.20* ]] || exit 1
+uninstall_bundles_share_remnants com.jetbrains.custom com.jetbrains.other "$app" "$other"
+_MOLE_UNINSTALL_SELECTOR_APP="$app"
+_MOLE_UNINSTALL_SELECTED_SELECTOR=IdeaIC2026.2
+mv "$app" "$app.removed"
+uninstall_bundles_share_remnants com.jetbrains.custom com.jetbrains.other "$app" "$other"
+/usr/libexec/PlistBuddy -c 'Set :JVMOptions:Properties:idea.paths.selector PyCharm2026.2' "$other/Contents/Info.plist"
+if uninstall_bundles_share_remnants com.jetbrains.custom com.jetbrains.other "$app" "$other"; then exit 1; fi
+SH
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "JetBrains selector uncertainty after preview stops every teardown" {
+    local scenario
+    for scenario in unknown changed; do
+        run env HOME="$BATS_TEST_TMPDIR/$scenario" PROJECT_ROOT="$PROJECT_ROOT" SCENARIO="$scenario" MOLE_TEST_NO_AUTH=1 /bin/bash <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+selected="$HOME/Applications/IDE.app"
+mkdir -p "$selected/Contents"
+fields=(IDE "$selected" com.jetbrains.custom 0 '' '' false false false '' '' '' '' none x com.jetbrains.custom '' x IdeaIC2026.2)
+IFS='|' detail="${fields[*]}"; unset IFS
+app_details=("$detail")
+_batch_selected_app_plan_matches() { return 0; }
+mole_uninstall_jetbrains_selector() {
+    [[ "$SCENARIO" == changed ]] || return 1
+    printf 'IdeaIC2026.3\n'
+}
+uninstall_live_bundle_has_other_install() { return 1; }
+stop_launch_services() { touch "$HOME/forbidden"; }
+unregister_app_bundle() { touch "$HOME/forbidden"; }
+remove_login_item() { touch "$HOME/forbidden"; }
+force_kill_app() { touch "$HOME/forbidden"; }
+mole_delete() { touch "$HOME/forbidden"; }
+stop_inline_spinner() { :; }
+success_count=0 failed_count=0 brew_apps_removed=0 total_size_freed=0 files_cleaned=0 total_items=0
+failed_items=() success_items=() success_dock_targets=() system_extension_warning_apps=()
+review_only_system_leftovers=() review_only_system_leftover_keys=() running_at_uninstall_apps=()
+_batch_execute_removals
+[[ $failed_count -eq 1 && $success_count -eq 0 && ! -e "$HOME/forbidden" ]] || exit 1
+[[ "${failed_items[*]}" == *'metadata changed after preview'* ]] || exit 1
+SH
+        [ "$status" -eq 0 ] || { echo "$scenario: $output"; return 1; }
+    done
+}
+
+@test "metadata ownership probes retain on timeout and preserve signals" {
+    run env HOME="$BATS_TEST_TMPDIR/probe-status" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 /bin/bash <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+container="$HOME/Library/Containers/ABCDEFAB-1234-1234-1234-123456789ABC"
+app="$HOME/Applications/IDE.app"
+mkdir -p "$container" "$app/Contents"
+printf '%s\n' '{"MCMMetadataIdentifier":"com.example.Gizmo"}' > "$container/.com.apple.containermanagerd.metadata.plist"
+touch "$app/Contents/Info.plist"
+run_with_timeout() { return "$probe_status"; }
+for probe_status in 124 143; do
+    rc=0
+    mole_uninstall_uuid_container_owned "$container" com.example.Gizmo || rc=$?
+    if [[ $probe_status -eq 124 ]]; then [[ $rc -eq 1 ]] || exit 1; else [[ $rc -eq 143 ]] || exit 1; fi
+    rc=0
+    mole_uninstall_jetbrains_selector "$app" com.jetbrains.custom || rc=$?
+    if [[ $probe_status -eq 124 ]]; then [[ $rc -eq 1 ]] || exit 1; else [[ $rc -eq 143 ]] || exit 1; fi
+done
+rc=0
+uninstall_bundles_share_remnants com.jetbrains.custom com.jetbrains.other "$app" "$HOME/Other.app" || rc=$?
+[[ $rc -eq 143 ]] || exit 1
+SH
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "JetBrains selector metadata accepts mixed-case bundle IDs" {
+    run env HOME="$BATS_TEST_TMPDIR/selector-case" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+app="$HOME/Applications/Custom IDE.app"
+mkdir -p "$app/Contents" "$HOME/Library/Caches/JetBrains/IdeaIC2026.2"
+printf '%s\n' '<plist><dict><key>JVMOptions</key><dict><key>Properties</key><dict><key>idea.paths.selector</key><string>IdeaIC2026.2</string></dict></dict></dict></plist>' > "$app/Contents/Info.plist"
+for id in com.jetbrains.custom COM.JETBRAINS.custom; do
+    selector=$(mole_uninstall_jetbrains_selector "$app" "$id")
+    [[ "$selector" == IdeaIC2026.2 ]] || exit 1
+    files=$(find_app_files "$id" 'Custom IDE' "$app")
+    grep -Fx "$HOME/Library/Caches/JetBrains/IdeaIC2026.2" <<< "$files" || exit 1
+done
+SH
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "JetBrains same-selector sibling retention folds both bundle IDs" {
+    run env HOME="$BATS_TEST_TMPDIR/sibling-case" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'SH'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+mole_uninstall_jetbrains_selector() { printf '%s\n' IdeaIC2026.2; }
+for selected in com.jetbrains.custom COM.JETBRAINS.custom; do
+    for other in com.jetbrains.other COM.JETBRAINS.other; do
+        uninstall_bundles_share_remnants "$selected" "$other" '/Applications/Custom IDE.app' '/Applications/Other IDE.app' || exit 1
+    done
+done
+mole_uninstall_jetbrains_selector() {
+    case "$1" in */Custom*) echo IdeaIC2026.2 ;; *) echo PyCharm2026.2 ;; esac
+}
+if uninstall_bundles_share_remnants COM.JETBRAINS.custom COM.JETBRAINS.other '/Applications/Custom IDE.app' '/Applications/Other IDE.app'; then exit 1; fi
+SH
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}

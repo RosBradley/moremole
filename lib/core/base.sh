@@ -1738,6 +1738,108 @@ mole_clean_process_guard() {
     return 1
 }
 
+# Named Electron caches do not carry a reverse-DNS owner in their path.
+# Callers supply the exact app name, not an executable such as Electron that
+# unrelated apps share. Escape it before both process-name and bundle probes.
+_mole_named_app_cache_running() {
+    mole_pgrep_any -x "$_MOLE_NAMED_APP_CACHE_PATTERN" \
+        -f "/${_MOLE_NAMED_APP_CACHE_PATTERN}[.]app/"
+}
+
+_dev_process_delete_guard_allows() {
+    # Bind ordinary leaves before probing. Compound probes can supply their
+    # own narrower binding; the final callback never refreshes this evidence.
+    local _MOLE_DEV_GUARDED_PATH="${1:-}"
+    local leaf_parent="" leaf_parent_id="" leaf_target_id=""
+    if [[ -n "$_MOLE_DEV_GUARDED_PATH" &&
+        "${_MOLE_SAFE_CLEAN_BOUND_PATH:-}" != "$_MOLE_DEV_GUARDED_PATH" ]]; then
+        if ! _mole_snapshot_path_identity "$_MOLE_DEV_GUARDED_PATH"; then
+            _MOLE_CLEAN_GUARD_REASON="${_MOLE_DEV_PROCESS_GUARD_UNKNOWN_REASON:-process state unknown}"
+            return 1
+        fi
+        leaf_parent="$_MOLE_PATH_SNAPSHOT_PARENT"
+        leaf_parent_id="$_MOLE_PATH_SNAPSHOT_PARENT_ID"
+        leaf_target_id="$_MOLE_PATH_SNAPSHOT_TARGET_ID"
+    fi
+    mole_clean_process_guard \
+        "$_MOLE_DEV_PROCESS_GUARD_PROBE" \
+        "$_MOLE_DEV_PROCESS_GUARD_FAMILY started" \
+        "${_MOLE_DEV_PROCESS_GUARD_UNKNOWN_REASON:-process state unknown}" || return $?
+
+    if [[ -n "$leaf_parent" &&
+        "${_MOLE_SAFE_CLEAN_BOUND_PATH:-}" != "$_MOLE_DEV_GUARDED_PATH" ]]; then
+        _MOLE_SAFE_CLEAN_BOUND_PATH="$_MOLE_DEV_GUARDED_PATH"
+        _MOLE_SAFE_CLEAN_EXPECTED_PARENT="$leaf_parent"
+        _MOLE_SAFE_CLEAN_EXPECTED_PARENT_ID="$leaf_parent_id"
+        _MOLE_SAFE_CLEAN_EXPECTED_TARGET_ID="$leaf_target_id"
+    fi
+    return 0
+}
+
+_dev_report_process_guard_stop() {
+    local display_name="$1"
+    local family="$2"
+    local reason="$3"
+
+    if [[ "$reason" == "process state unknown" || "$reason" == "process or cache path state unknown" ]]; then
+        echo -e "  ${GRAY}${ICON_WARNING}${NC} ${display_name} · stopped (${reason})"
+        note_activity
+    else
+        mole_defer_cleanup_family "$family"
+    fi
+}
+
+# Preserve a caller's final exclusion before repeating the owner probe. The
+# outer callback may itself do slow work, so owner evidence must come last.
+_dev_final_process_delete_guard_allows() {
+    if [[ -n "$_MOLE_DEV_OUTER_FINAL_GUARD" ]]; then
+        "$_MOLE_DEV_OUTER_FINAL_GUARD" "$@" || return $?
+    fi
+    _dev_process_delete_guard_allows "$@"
+}
+
+# Bind a tri-state process probe after sizing and at safe_remove's final sink.
+# Guard state is intentionally dynamic so Bash 3.2 callbacks can read it.
+_dev_safe_clean_process_guarded() {
+    local probe="$1"
+    local family="$2"
+    local display_name="$3"
+    shift 3
+    local _MOLE_DEV_PROCESS_GUARD_PROBE="$probe"
+    local _MOLE_DEV_PROCESS_GUARD_FAMILY="$family"
+    local _MOLE_CLEAN_GUARD_REASON="${family} started"
+    local _MOLE_DEV_OUTER_FINAL_GUARD="${_MOLE_SAFE_REMOVE_FINAL_GUARD:-}"
+    local _MOLE_SAFE_REMOVE_FINAL_GUARD=_dev_final_process_delete_guard_allows
+
+    if ! declare -f safe_clean_guarded > /dev/null 2>&1; then
+        if ! _dev_process_delete_guard_allows; then
+            _dev_report_process_guard_stop "$display_name" "$family" "$_MOLE_CLEAN_GUARD_REASON"
+            return 1
+        fi
+        safe_clean "$@"
+        return $?
+    fi
+
+    local guarded_rc=0
+    safe_clean_guarded _dev_process_delete_guard_allows "$@" || guarded_rc=$?
+    if [[ $guarded_rc -eq 75 ]]; then
+        _dev_report_process_guard_stop "$display_name" "$family" "$_MOLE_CLEAN_GUARD_REASON"
+        return 1
+    fi
+    return "$guarded_rc"
+}
+
+mole_safe_clean_app_cache() {
+    local owner="$1"
+    shift
+    local _MOLE_NAMED_APP_CACHE_PATTERN
+    _MOLE_NAMED_APP_CACHE_PATTERN=$(_mole_regex_escape "$owner")
+    local rc=0
+    _dev_safe_clean_process_guarded _mole_named_app_cache_running "$owner" "${*: -1}" "$@" || rc=$?
+    [[ $rc -gt 1 ]] || return 0
+    return "$rc"
+}
+
 # Report a guard refusal. An unknown process state is the user's problem to see
 # now (it means Mole could not tell, not that it found something running), so it
 # prints against the item. A known-running app is ordinary and goes to the

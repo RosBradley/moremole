@@ -174,6 +174,7 @@ done
 PURGE_SEARCH_PATHS=("$HOME/www")
 scan_purge_targets() { printf '%s\n' "$HOME/www/"{a-first,b-peer,c-later}/node_modules > "$2"; }
 purge_artifact_has_authored_content() { return 1; }
+purge_node_modules_is_protected() { return 1; }
 get_optimal_parallel_jobs() { echo 2; }
 get_dir_size_kb() { echo SIZE_PHASE_REACHED >&2; echo 1; }
 safe_remove() { echo UNEXPECTED_REMOVE; }

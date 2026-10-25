@@ -136,3 +136,17 @@ mole_test_isolate_account_home() {
 }
 
 mole_test_isolate_account_home
+
+# Mole's temp registry and stale-temp pruning otherwise inherit the account's
+# system temp directory even when HOME is isolated. Keep every ordinary Bats
+# scratch file under the runner-owned per-file tree; tests may still override
+# TMPDIR explicitly after loading this helper to exercise fallback behavior.
+mole_test_isolate_tmpdir() {
+    [[ -n "${BATS_FILE_TMPDIR:-}" ]] || return 0
+    TMPDIR="$BATS_FILE_TMPDIR/mole-tmp"
+    mkdir -p "$TMPDIR"
+    export TMPDIR
+    unset MOLE_RESOLVED_TMPDIR MOLE_TEMP_REGISTRY_FILE
+}
+
+mole_test_isolate_tmpdir

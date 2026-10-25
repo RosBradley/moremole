@@ -531,6 +531,60 @@ purge_artifact_has_authored_content() {
 # unfinished content probe rather than evidence.
 PURGE_PROTECTION_UNVERIFIED=false
 
+# Returns the same tri-state as process probes. A project may be active with
+# no open file inside node_modules, for example a shell or dev server in cwd.
+purge_node_project_running() {
+    local project="$1" deadline="${2:-}" probe_timeout evidence rc=0 line saw_cwd=false
+    [[ "$project" == /* && ! "$project" =~ [[:cntrl:]] ]] || return 2
+    probe_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_HINT_SCAN_SEC" "$deadline") || return 2
+    evidence=$(run_with_timeout "$probe_timeout" /usr/sbin/lsof -nP -a -u "$(id -u)" -d cwd -Fn 2>&1) || rc=$?
+    [[ $rc -le 128 ]] || return "$rc"
+    [[ $rc -eq 0 && -n "$evidence" ]] || return 2
+    while IFS= read -r line; do
+        case "$line" in
+            "n$project" | "n$project/"*) return 0 ;;
+            n/*) saw_cwd=true ;;
+            p[0-9]* | fcwd) ;;
+            *) return 2 ;; # A warning or unavailable cwd makes visibility incomplete.
+        esac
+    done <<< "$evidence"
+    [[ "$saw_cwd" == true ]] || return 2
+    probe_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_HINT_SCAN_SEC" "$deadline") || return 2
+    rc=0
+    run_with_timeout "$probe_timeout" pgrep -f "$(_mole_regex_escape "$project")(/|[[:space:]]|$)" > /dev/null 2>&1 || rc=$?
+    [[ $rc -le 128 ]] || return "$rc"
+    [[ $rc -le 1 ]] || return 2
+    return "$rc"
+}
+
+# Lockfiles make reinstall possible; the package-manager record separates
+# installed files from later local edits. An incomplete probe is not proof.
+# This is independent of the existing seven-day activity/selection policy.
+purge_node_modules_is_protected() {
+    local path="$1" deadline="${2:-}" project marker="" pair lock record
+    local evidence probe_timeout rc=0
+    path=$(cd "$path" 2> /dev/null && /bin/pwd -P) || return 2
+    project="${path%/*}"
+    [[ -f "$project/package.json" && -r "$project/package.json" && ! -L "$project/package.json" ]] || return 0
+    for pair in 'package-lock.json:.package-lock.json' 'npm-shrinkwrap.json:.package-lock.json' 'pnpm-lock.yaml:.modules.yaml' 'yarn.lock:.yarn-integrity' 'yarn.lock:.yarn-state.yml'; do
+        lock="${pair%%:*}"
+        record="${pair#*:}"
+        if [[ -f "$project/$lock" && -r "$project/$lock" && ! -L "$project/$lock" &&
+            -f "$path/$record" && -r "$path/$record" && ! -L "$path/$record" ]]; then
+            marker="$path/$record"
+            break
+        fi
+    done
+    [[ -n "$marker" ]] || return 0
+    probe_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_HINT_SCAN_SEC" "$deadline") || return 2
+    evidence=$(run_with_timeout "$probe_timeout" /usr/bin/find "$path" \
+        -type d -path "$path/.cache" -prune -o -type f -newer "$marker" -print -quit 2> /dev/null) || rc=$?
+    [[ $rc -le 128 ]] || return "$rc"
+    [[ $rc -eq 0 ]] || return 2
+    [[ -z "$evidence" ]] || return 0
+    purge_node_project_running "$project" "$deadline"
+}
+
 is_protected_purge_artifact() {
     local path="${1%/}"
     local deadline="${2:-}"
@@ -547,6 +601,16 @@ is_protected_purge_artifact() {
     [[ $authored_rc -ne 0 ]] || return 0
 
     case "$base" in
+        node_modules)
+            local node_rc=0
+            purge_node_modules_is_protected "$path" "$deadline" || node_rc=$?
+            [[ $node_rc -le 128 ]] || return "$node_rc"
+            if [[ $node_rc -eq 2 ]]; then
+                PURGE_PROTECTION_UNVERIFIED=true
+                return 0
+            fi
+            return "$node_rc"
+            ;;
         bin)
             # Only allow purging bin/ when we can detect .NET context.
             if is_dotnet_bin_dir "$path"; then
@@ -1256,11 +1320,13 @@ purge_target_activity_still_safe() {
 _mole_purge_final_remove_guard() {
     local path="$1"
     is_safe_configured_purge_artifact "$path" || return 1
+    # Activity scanning can take the full tree-walk budget. Run it before
+    # protection's final project-process probe, then rebind identities below.
+    purge_target_activity_still_safe "$path" "${_MOLE_PURGE_FINAL_ACTIVITY_STATE:-uncertain}" || return $?
     local protection_rc=0
     is_protected_purge_artifact "$path" || protection_rc=$?
     [[ $protection_rc -le 128 ]] || return "$protection_rc"
     [[ $protection_rc -ne 0 ]] || return 1
-    purge_target_activity_still_safe "$path" "${_MOLE_PURGE_FINAL_ACTIVITY_STATE:-uncertain}" || return $?
 
     _mole_path_matches_identity \
         "${_MOLE_PURGE_FINAL_SCAN_ROOT:-}" \

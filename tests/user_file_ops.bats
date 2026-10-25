@@ -369,3 +369,24 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"recreated-without-repeat-setup"* ]]
 }
+
+@test "Bats helper isolates inherited temp roots and registries" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" BATS_FILE_TMPDIR="$BATS_TEST_TMPDIR/isolated-file" \
+        TMPDIR="$BATS_TEST_TMPDIR/ambient" MOLE_RESOLVED_TMPDIR="$BATS_TEST_TMPDIR/ambient" \
+        MOLE_TEMP_REGISTRY_FILE="$BATS_TEST_TMPDIR/ambient/mole.registry.parent" /bin/bash <<'EOF'
+set -euo pipefail
+mkdir -p "$TMPDIR" "$BATS_FILE_TMPDIR"
+ambient="$TMPDIR"
+printf sentinel > "$MOLE_TEMP_REGISTRY_FILE"
+source "$PROJECT_ROOT/tests/helpers/common.bash"
+source "$PROJECT_ROOT/lib/core/base.sh"
+temp_file=$(create_temp_file)
+[[ "$temp_file" == "$BATS_FILE_TMPDIR/"* ]] || exit 1
+[[ "${MOLE_TEMP_REGISTRY_FILE:-}" != "$ambient/"* ]] || exit 1
+[[ "$(cat "$ambient/mole.registry.parent")" == sentinel ]] || exit 1
+[[ -f "$temp_file" ]] || exit 1
+printf 'PASS\n'
+EOF
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *PASS* ]]
+}
