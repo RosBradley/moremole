@@ -5,7 +5,7 @@ moremole is a personal fork of [Mole](https://github.com/tw93/Mole) by tw93, mod
 - **The banner says MoreMole** and points to this repository, on the menu and the help screen. Its tagline keeps Mole's line, "Deep clean and optimize your Mac.", and adds "Manage, update and remove apps." The version screen (V) credits Mole and shows the moremole commit that is running.
 - **The main menu lists every command** from Mole's More screen (M), not just the first five. Each command has its own row, with its preview (dry-run) and other variants beside it, and a line under the menu describes the highlighted item.
 - **You can add your own commands to the menu,** and edit or remove them, right in the menu. They get a section of their own.
-- **Commands run inside a MoreMole screen:** the title, the command's summary and the keys stay at the top while its output scrolls below them, like the menu. When it finishes its summary stays pinned at the top and you scroll back through everything else it printed, with Clean's file list one key away. A cancelled command returns to the menu straight away.
+- **Commands run inside a MoreMole screen:** the title and the command's summary stay at the top and a bar at the bottom says it's running, while its output scrolls between them, like the menu. When it finishes, the bar says so and shows the keys; you scroll back through everything it printed, search it with /, and open Clean's file list with F. A cancelled command returns to the menu straight away.
 - **Status fills the window:** its bars stretch with the window, it lists every CPU core, and it has a GPU card.
 - **Software updates** finds updates for Homebrew apps and tools, App Store apps, macOS and apps with their own updater, and installs the ones you pick.
 - **Pick lists have a search line and open A–Z:** type to narrow the list, and sort by name, size or date. Installer files uses the same list, so it gains both.
@@ -26,7 +26,7 @@ The moremole changes live in their own files, so Mole's updates merge cleanly:
 | `scripts/moremole-sync.sh` | Brings in Mole's latest changes |
 | `tests/moremole_*.bats`, `cmd/status/moremole_test.go`, `cmd/moremole-updates/*_test.go`, `cmd/moremole-view/*_test.go` | Tests for the above |
 | `mole`, `Makefile`, `lib/core/commands.sh`, `lib/core/common.sh`, `cmd/status/*.go` | A few marked lines (`moremole`) that hook the above in |
-| `lib/ui/menu_paginated.sh`, `lib/ui/app_selector.sh`, `bin/slim.sh`, `bin/installer.sh`, `bin/optimize.sh` | Marked lines (`MoreMole`) for the search line, A–Z first and Optimize's names; `tests/slim.bats` and `tests/uninstall_menu.bats` each have one test changed to match |
+| `lib/ui/menu_paginated.sh`, `lib/ui/app_selector.sh`, `bin/slim.sh`, `bin/installer.sh`, `bin/optimize.sh`, `lib/clean/project.sh` | Marked lines (`MoreMole`) for the search line, A–Z first, Optimize's names and Purge's find showing what you type; `tests/slim.bats` and `tests/uninstall_menu.bats` each have one test changed to match |
 | Mole's commands: `bin/clean.sh`, `bin/completion.sh`, `bin/installer.sh`, `bin/purge.sh`, `bin/slim.sh`, `bin/touchid.sh`, `bin/uninstall.sh`, `lib/uninstall/batch.sh`, `lib/manage/whitelist.sh` | One `moremole_note_cancel` line at each place the user cancels (`tests/moremole_cancel.bats` checks they're all there) |
 
 ## Running it
@@ -87,10 +87,12 @@ Every command works from the command line and in scripts as in Mole: same comman
 - Software removal is Mole's Uninstall, next to Software updates.
 - 1 to 5 still start Clean, Software removal (Uninstall), Optimize, Analyze and Status directly. M (help) and V (version) show their screen and come back to the menu on Enter or Q; T, U and Q work as before.
 - The help screen and update notices name commands `moremole ...` instead of `mo ...`.
-- Each command runs on the command screen, named after the menu item (for example "Clean · Preview"). The top rows stay put: the title, the command's summary, the keys and a divider. The command's output scrolls below them, and the terminal itself never scrolls.
-- While the command runs, a spinner turns beside the title. Clean shows its summary's labels with the spinner where the numbers will go (Potential space, Items and Categories for Preview; Tracked cleanup and Items cleaned for a real Clean). Other commands' summaries are sentences, so only the spinner shows.
+- Each command runs on the command screen, named after the menu item (for example "Clean · Preview"). The title and the command's summary stay at the top, a bar stays at the bottom, and the command's output scrolls between them; the terminal itself never scrolls.
+- While the command runs, the bar at the bottom shows a spinner and "Running". Clean also shows its summary's labels at the top with the spinner where the numbers will go (Potential space, Items and Categories for Preview; Tracked cleanup and Items cleaned for a real Clean). Other commands' summaries are sentences, so only the bar shows.
 - Keys go to the running command: its prompts, passwords and pick lists work as usual, and Ctrl-C stops it.
-- When it finishes, its summary (the block Mole prints between two rows of `=`) moves to the top, and the rest of its output scrolls below, opened at the end. Scroll with the arrow keys, PgUp and PgDn, or Home and End; in most terminals the trackpad scrolls it too. Enter, Q or ESC returns to the menu.
+- When it finishes, the bar says so where your eyes are: ✓ and the summary's heading (for example "✓ Updates installed"), or "✓ Done"; "!" when it ended with an error and "■ Stopped" after Ctrl-C. The rest of the bar lists the keys. The summary (the block Mole prints between two rows of `=`) moves to the top, and the rest of the output scrolls below, opened at the end. Scroll with the arrow keys, PgUp and PgDn, or Home and End; in most terminals the trackpad scrolls it too. Enter, Q or ESC returns to the menu.
+- **/** searches the output, the same way as the pick lists: it narrows to the matching lines as you type, upper or lower case alike, with the matches marked, and the bar counts them. Enter or an arrow key finishes typing, and ESC or Q clears the search and goes back to where you were. History, every Preview and every command's results can be searched this way.
+- History from the menu shows the last 200 entries (`moremole history` alone shows 20).
 - After Clean's Preview, **F** shows the list of files Clean would remove (`~/.config/mole/clean-list.txt`, which stays where Mole puts it), long paths wrapped in full; the summary's "Detailed file list" line says "(F to view)". Q goes back to the results.
 - The results keep the colors and drop what was only on screen for a moment: progress spinners, pick lists, and screens a command cleared.
 - Analyze and Status are full-screen already and run on their own; they come back as soon as you quit them.
@@ -107,7 +109,7 @@ The lists you choose items from (Software removal, Slim Intel code, Installer fi
 - The arrow keys take you from the search line into the narrowed list, so Space selects and Enter saves. Enter on the search line just finishes the search.
 - **Esc** or **Q** clears an applied search; Q again goes back. Selections stay when the search changes, and Enter never saves a selection the search is hiding: it clears the search first, so you see everything you picked.
 - Lists open A–Z. Where the list knows sizes or dates, **S** switches to largest first, then oldest first, then back to A–Z, and **O** flips the order. Installer files sorts by file name, size and date modified; Software removal by name, size and last used.
-- Purge keeps its own list, grouped by project with the biggest first, with **/** to find a project or folder and **n** for the next match.
+- Purge keeps its own list, grouped by project with the biggest first. **/** asks for a project or folder name; type it and press Enter to jump to the first match, then **n** for the next one.
 
 ## Your own commands
 
