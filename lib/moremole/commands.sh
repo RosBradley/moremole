@@ -5,7 +5,7 @@
 _moremole_commands=()
 for _moremole_entry in "${MOLE_COMMANDS[@]}"; do
     _moremole_commands+=("$_moremole_entry")
-    [[ "$_moremole_entry" == slim:* ]] && _moremole_commands+=("updates:Update apps, tools and macOS")
+    [[ "$_moremole_entry" == slim:* ]] && _moremole_commands+=("updates:Update apps, tools and macOS" "models:Update, download and remove Ollama models")
 done
 MOLE_COMMANDS=("${_moremole_commands[@]}")
 unset _moremole_commands _moremole_entry

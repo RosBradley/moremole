@@ -25,6 +25,7 @@ export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/core/common.sh"
 source "$SCRIPT_DIR/../lib/ui/menu_paginated.sh"
+source "$SCRIPT_DIR/../lib/moremole/runs.sh"
 
 UPDATES_HELPER="$SCRIPT_DIR/moremole-updates-go"
 UPDATES_OPEN=/usr/bin/open
@@ -59,9 +60,6 @@ OPEN_INDICES=()
 OPENED_NAMES=()
 HOST_SKIPPED=()
 RETRIED_NAMES=()
-# What the last update printed on standard error, where Homebrew and mas
-# print their errors.
-UPDATE_ERRORS=""
 
 cleanup() {
     if [[ -n "$UPDATES_MACOS_PID" ]]; then
@@ -138,14 +136,6 @@ is_host_update() {
 
 run_helper() {
     "$UPDATES_HELPER" "$1" 2> /dev/null || true
-}
-
-has_notice() {
-    local key
-    for key in "${NOTICE_KEYS[@]+"${NOTICE_KEYS[@]}"}"; do
-        [[ "$key" == "$1" ]] && return 0
-    done
-    return 1
 }
 
 drop_notice() {
@@ -476,22 +466,6 @@ record_update() {
     fi
 }
 
-# Run an update with its output shown live, keeping a copy of what it prints
-# on standard error in UPDATE_ERRORS.
-run_update_command() {
-    : > "$UPDATE_ERRORS"
-    { "$@" 2>&1 1>&3 3>&- | tee "$UPDATE_ERRORS" >&2 3>&-; } 3>&1
-}
-
-# The tool's own last "Error:" line from the last update, without colors.
-update_error_line() {
-    awk -v esc=$'\033' '
-        { gsub(esc "\\[[0-9;]*[A-Za-z]", "") }
-        /^Error: / { sub(/^Error: /, ""); last = $0 }
-        END { print last }
-    ' "$UPDATE_ERRORS" 2> /dev/null || true
-}
-
 # Whether a failed cask upgrade stopped only because Homebrew found a copy
 # of one of the cask's own files left in its own folder for that cask, as an
 # upgrade that stopped partway can leave behind ("It seems there is already
@@ -501,7 +475,7 @@ leftover_copy_in_caskroom() {
     local tool="$1" token="$2" error caskroom path
     # Homebrew names the cask first: "<token>: It seems there is already ...".
     local re="^([^ ]+: )?It seems there is already an? .+ at '([^']+)'"
-    error=$(update_error_line)
+    error=$(moremole_run_error_line)
     [[ "$error" =~ $re ]] || return 1
     path="${BASH_REMATCH[2]}"
     caskroom=$("$tool" --caskroom 2> /dev/null) || return 1
@@ -567,12 +541,12 @@ install_update() {
     esac
 
     echo -e "${BLUE}${ICON_ARROW} $(mole_terminal_safe_text "${U_NAME[idx]}")${NC} ${GRAY}$(version_text "$idx")${NC}"
-    if run_update_command "${cmd[@]}"; then
+    if moremole_run_shown "${cmd[@]}"; then
         record_update "$idx" true
     elif [[ "$kind" == "app" ]] && leftover_copy_in_caskroom "$tool" "$id"; then
         echo -e "${YELLOW}${ICON_WARNING}${NC} Homebrew kept a copy of this app's file from an earlier update in its own folder; trying again with --force, which replaces only that copy."
         cmd=("$tool" upgrade --cask --greedy --force "$id")
-        if run_update_command "${cmd[@]}"; then
+        if moremole_run_shown "${cmd[@]}"; then
             RETRIED_NAMES+=("${U_NAME[idx]}")
             record_update "$idx" true
         else
@@ -587,7 +561,7 @@ install_update() {
 # Why the last update failed: the tool's own error line, else which tool.
 update_failure_reason() {
     local error
-    error=$(update_error_line)
+    error=$(moremole_run_error_line)
     if [[ -n "$error" ]]; then
         printf '%s' "$error"
     else
@@ -598,7 +572,7 @@ update_failure_reason() {
 install_updates() {
     local -a indices=("$@")
     local idx
-    UPDATE_ERRORS=$(create_temp_file)
+    MOREMOLE_RUN_ERRORS=$(create_temp_file)
     log_operation_session_start "$MOLE_CURRENT_COMMAND"
     for idx in "${indices[@]}"; do
         [[ "$idx" =~ ^[0-9]+$ && $idx -lt ${#U_KIND[@]} ]] || continue

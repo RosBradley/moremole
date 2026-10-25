@@ -105,10 +105,10 @@ main() {
     printf '\nDone.\n'
 }
 
-# What `make build` builds: Analyze, Status, the Software updates helper and
-# the command screen.
-readonly GO_PARTS=(bin/analyze-go bin/status-go bin/moremole-updates-go bin/moremole-view-go)
-readonly GO_PARTS_NAMES="Analyze, Status, Software updates and the command screen"
+# What `make build` builds: Analyze, Status, the Software updates and AI
+# models helpers and the command screen.
+readonly GO_PARTS=(bin/analyze-go bin/status-go bin/moremole-updates-go bin/moremole-models-go bin/moremole-view-go)
+readonly GO_PARTS_NAMES="Analyze, Status, Software updates, AI models and the command screen"
 
 # Whether any Go part is missing or older than any of the Go source.
 # Comparing file times catches Go changes from any source: this update, a
