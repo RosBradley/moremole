@@ -43,9 +43,13 @@ U_NAME=()
 U_FROM=()
 U_TO=()
 U_NOTE=()
+U_BUNDLE=()
 NOTICE_KEYS=()
 NOTICE_TEXTS=()
 UPDATES_MACOS_PID=""
+# The apps MoreMole runs inside, such as the terminal; updating one from
+# here could end the run, so it is left out.
+HOST_BUNDLES=()
 
 total_updated=0
 total_failed=0
@@ -53,6 +57,7 @@ UPDATE_FAILURES=()
 SETTINGS_ITEMS=()
 OPEN_INDICES=()
 OPENED_NAMES=()
+HOST_SKIPPED=()
 
 cleanup() {
     if [[ -n "$UPDATES_MACOS_PID" ]]; then
@@ -96,11 +101,11 @@ find_tool() {
     return 1
 }
 
-# Read helper rows ("kind id name installed available note") from standard
-# input into the scan arrays; notices go to the notice arrays.
+# Read helper rows ("kind id name installed available note bundle") from
+# standard input into the scan arrays; notices go to the notice arrays.
 load_update_rows() {
-    local kind id name from to note
-    while IFS="$UPDATES_FIELD_SEP" read -r kind id name from to note || [[ -n "${kind:-}" ]]; do
+    local kind id name from to note bundle
+    while IFS="$UPDATES_FIELD_SEP" read -r kind id name from to note bundle || [[ -n "${kind:-}" ]]; do
         [[ -n "$kind" ]] || continue
         if [[ "$kind" == "notice" ]]; then
             NOTICE_KEYS+=("$id")
@@ -113,7 +118,18 @@ load_update_rows() {
         U_FROM+=("$from")
         U_TO+=("$to")
         U_NOTE+=("$note")
+        U_BUNDLE+=("$bundle")
     done
+}
+
+# Whether update $1 is for an app MoreMole runs inside.
+is_host_update() {
+    local bundle="${U_BUNDLE[$1]:-}" host
+    [[ -n "$bundle" ]] || return 1
+    for host in "${HOST_BUNDLES[@]+"${HOST_BUNDLES[@]}"}"; do
+        [[ "$host" == "$bundle" ]] && return 0
+    done
+    return 1
 }
 
 run_helper() {
@@ -143,7 +159,7 @@ drop_notice() {
 # Put the scan arrays in A-Z order by name, whatever their source; each row
 # shows where it comes from.
 order_update_rows() {
-    local -a o_kind=() o_id=() o_name=() o_from=() o_to=() o_note=()
+    local -a o_kind=() o_id=() o_name=() o_from=() o_to=() o_note=() o_bundle=()
     local i _name
     while IFS=$'\t' read -r _name i; do
         o_kind+=("${U_KIND[i]}")
@@ -152,6 +168,7 @@ order_update_rows() {
         o_from+=("${U_FROM[i]}")
         o_to+=("${U_TO[i]}")
         o_note+=("${U_NOTE[i]}")
+        o_bundle+=("${U_BUNDLE[i]}")
     done < <(
         for ((i = 0; i < ${#U_KIND[@]}; i++)); do
             printf '%s\t%s\n' "${U_NAME[i]}" "$i"
@@ -163,6 +180,7 @@ order_update_rows() {
     U_FROM=("${o_from[@]+"${o_from[@]}"}")
     U_TO=("${o_to[@]+"${o_to[@]}"}")
     U_NOTE=("${o_note[@]+"${o_note[@]}"}")
+    U_BUNDLE=("${o_bundle[@]+"${o_bundle[@]}"}")
 }
 
 spin() {
@@ -182,6 +200,11 @@ scan_updates() {
     macos_out=$(create_temp_file)
     "$UPDATES_HELPER" macos > "$macos_out" 2> /dev/null &
     UPDATES_MACOS_PID=$!
+
+    local host
+    while IFS= read -r host; do
+        [[ -n "$host" ]] && HOST_BUNDLES+=("$host")
+    done < <(run_helper host)
 
     spin "Checking Homebrew apps and tools..."
     load_update_rows < <(run_helper brew)
@@ -321,9 +344,12 @@ measure_columns() {
 # One display row per update: name, versions, then where it comes from and
 # any note, cut to the terminal width. Sources and notes are plain ASCII.
 update_row_text() {
-    local i="$1" tag room
+    local i="$1" tag room note="${U_NOTE[$1]}"
     tag=$(kind_label "${U_KIND[i]}")
-    [[ -z "${U_NOTE[i]}" ]] || tag+=" (${U_NOTE[i]})"
+    if is_host_update "$i"; then
+        note="runs MoreMole${note:+, $note}"
+    fi
+    [[ -z "$note" ]] || tag+=" ($note)"
     tag=$(mole_terminal_safe_text "$tag")
     room=$((UPDATES_ROW_W - UPDATES_NAME_W - UPDATES_VER_W - 4))
     ((${#tag} <= room)) || tag="${tag:0:$((room - 3))}..."
@@ -358,10 +384,17 @@ select_updates() {
 }
 
 confirm_updates() {
-    local -a indices=("$@")
-    local idx has_app=false has_takeover=false has_store=false has_macos=false has_settings=false has_feed=false
+    local -a indices=("$@") hosts=()
+    local idx installable=0 has_app=false has_takeover=false has_store=false has_macos=false has_settings=false has_feed=false
     echo -e "${PURPLE_BOLD}Updates to install:${NC}"
     for idx in "${indices[@]}"; do
+        if is_host_update "$idx"; then
+            hosts+=("$(mole_terminal_safe_text "${U_NAME[idx]}")")
+            printf '  %s- %s %s · left out: it runs MoreMole%s\n' "$GRAY" \
+                "$(mole_terminal_safe_text "${U_NAME[idx]}")" "$(version_text "$idx")" "$NC"
+            continue
+        fi
+        installable=$((installable + 1))
         printf '  %s%s%s %s %s%s · %s%s\n' "$GREEN" "$ICON_SUCCESS" "$NC" \
             "$(mole_terminal_safe_text "${U_NAME[idx]}")" "$GRAY" "$(version_text "$idx")" "$(kind_label "${U_KIND[idx]}")" "$NC"
         case "${U_KIND[idx]}" in
@@ -392,7 +425,12 @@ confirm_updates() {
     if [[ "$has_feed" == "true" ]]; then
         echo -e "${GRAY}Apps with their own updater open at the end; it installs the update.${NC}"
     fi
-    echo -ne "${PURPLE}${ICON_ARROW}${NC} Install ${#indices[@]} updates  ${GREEN}Enter${NC} confirm, ${GRAY}ESC${NC} cancel: "
+    if [[ ${#hosts[@]} -gt 0 ]]; then
+        echo -e "${YELLOW}${ICON_WARNING}${NC} $(host_advice "${hosts[@]}")"
+    fi
+    # Nothing to ask when everything picked is left out; the summary says why.
+    [[ $installable -gt 0 ]] || return 0
+    echo -ne "${PURPLE}${ICON_ARROW}${NC} Install ${installable} updates  ${GREEN}Enter${NC} confirm, ${GRAY}ESC${NC} cancel: "
 
     local confirm
     if ! IFS= read -r -s -n1 confirm; then
@@ -407,6 +445,18 @@ confirm_updates() {
     esac
     printf '\n'
     return 1
+}
+
+# The advice for apps left out because MoreMole runs inside them.
+host_advice() {
+    local names="$1" verb="runs"
+    shift
+    while [[ $# -gt 0 ]]; do
+        names+=", $1"
+        verb="run"
+        shift
+    done
+    printf '%s %s MoreMole, so updating from here could end this run: use the app'"'"'s own Check for Updates, or update it from another terminal.' "$names" "$verb"
 }
 
 record_update() {
@@ -428,6 +478,11 @@ install_update() {
     local -a cmd=()
     local tool
 
+    if is_host_update "$idx"; then
+        HOST_SKIPPED+=("${U_NAME[idx]}")
+        log_operation "$MOLE_CURRENT_COMMAND" "SKIPPED" "${U_NAME[idx]}" "runs MoreMole; update it from another terminal"
+        return 0
+    fi
     case "$kind" in
         macos-settings)
             SETTINGS_ITEMS+=("${U_NAME[idx]}")
@@ -520,12 +575,22 @@ show_updates_summary() {
             heading="Finish in System Settings and each app"
         elif [[ ${#OPENED_NAMES[@]} -gt 0 ]]; then
             heading="Finish in each app"
+        elif [[ ${#SETTINGS_ITEMS[@]} -eq 0 ]]; then
+            heading="Nothing installed"
         fi
     fi
     if [[ $total_updated -gt 0 ]]; then
         details+=("Updated ${GREEN}$total_updated${NC}")
     elif [[ ${#SETTINGS_ITEMS[@]} -eq 0 && ${#OPENED_NAMES[@]} -eq 0 ]]; then
         details+=("Nothing was updated")
+    fi
+    if [[ ${#HOST_SKIPPED[@]} -gt 0 ]]; then
+        local -a host_names=()
+        local host_name
+        for host_name in "${HOST_SKIPPED[@]}"; do
+            host_names+=("$(mole_terminal_safe_text "$host_name")")
+        done
+        details+=("${ICON_WARNING} Left out: $(host_advice "${host_names[@]}")")
     fi
     local item
     for item in "${UPDATE_FAILURES[@]+"${UPDATE_FAILURES[@]}"}"; do

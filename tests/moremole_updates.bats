@@ -39,7 +39,7 @@ EOF
 	mole_test_fake_command open 'printf "open %s\n" "$*" >> "$CALLS"'
 }
 
-# Append a helper row: kind id name installed available note.
+# Append a helper row: kind id name installed available note [bundle].
 row() {
 	local file="$ROWS_DIR/$1"
 	shift
@@ -265,6 +265,60 @@ open $BATS_TEST_TMPDIR/Apps/Other.app" ] || { echo "$calls"; return 1; }
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 	[[ "$output" == *"Finish in each app"*"Opened for their own updater: Postico 2"* ]] || return 1
 	[[ "$output" != *"Nothing was updated"* ]]
+}
+
+@test "the app MoreMole runs inside is marked, left out at confirm and never installed" {
+	printf '%s\n' com.googlecode.iterm2 > "$ROWS_DIR/host"
+	row brew app iterm2 iTerm2 3.7.5 3.7.6 "updates itself" com.googlecode.iterm2
+	row brew app visual-studio-code "Visual Studio Code" 1.88.0 1.89.0 "" com.microsoft.VSCode
+	run updates_env COLUMNS=120 /bin/bash -c 'source "$1"; main --dry-run' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"iTerm2"*"Homebrew (runs MoreMole, updates itself)"* ]] || return 1
+	[[ "$output" != *"Visual Studio Code"*"runs MoreMole"* ]] || return 1
+
+	run updates_env /bin/bash -c '
+		source "$1"
+		HOST_BUNDLES=(com.googlecode.iterm2)
+		load_update_rows < "$ROWS_DIR/brew"
+		order_update_rows
+		printf "\n" | confirm_updates 0 1 && echo CONFIRMED
+		echo ---
+		confirm_updates 0 < /dev/null && echo NO_QUESTION
+		echo ---
+		install_updates 0 1
+		show_updates_summary
+	' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	local confirm="${output%%---*}" alone rest
+	rest="${output#*---}"
+	alone="${rest%%---*}"
+	[[ "$confirm" == *"- iTerm2"*"left out: it runs MoreMole"* ]] || return 1
+	[[ "$confirm" == *"iTerm2 runs MoreMole, so updating from here could end this run"*"Check for Updates"*"another terminal"* ]] || return 1
+	[[ "$confirm" == *"Install 1 updates"*"CONFIRMED"* ]] || return 1
+	# Picking only that app asks nothing; the summary explains.
+	[[ "$alone" == *"left out"*"NO_QUESTION"* && "$alone" != *"Install"*"updates  "* ]] || return 1
+	[[ "$output" == *"Updates installed"*"Updated"*"1"*"Left out: iTerm2 runs MoreMole"* ]] || return 1
+
+	local calls
+	calls=$(cat "$CALLS")
+	[ "$calls" = "brew upgrade --cask --greedy visual-studio-code" ] || { echo "$calls"; return 1; }
+	grep -q "SKIPPED iTerm2 (runs MoreMole; update it from another terminal)" "$HOME/Library/Logs/mole/operations.log"
+}
+
+@test "picking only the app MoreMole runs inside installs nothing and says so" {
+	printf '%s\n' com.googlecode.iterm2 > "$ROWS_DIR/host"
+	row scan feed "$BATS_TEST_TMPDIR/iTerm.app" iTerm2 3.7.5 3.7.6 "opens the app" com.googlecode.iterm2
+	mkdir -p "$BATS_TEST_TMPDIR/iTerm.app"
+	run updates_env /bin/bash -c '
+		source "$1"
+		HOST_BUNDLES=(com.googlecode.iterm2)
+		load_update_rows < "$ROWS_DIR/scan"
+		install_updates 0
+		show_updates_summary
+	' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"Nothing installed"*"Nothing was updated"*"Left out: iTerm2 runs MoreMole"* ]] || return 1
+	[ ! -s "$CALLS" ]
 }
 
 @test "updates is a command with help, completion and a menu row" {

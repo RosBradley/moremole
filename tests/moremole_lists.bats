@@ -173,3 +173,19 @@ read_key() {
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 	[[ "$output" == *"PASS"* ]]
 }
+
+@test "Purge's list starts with nothing selected, old artifacts included" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+PURGE_CATEGORY_SIZES="1,2"
+PURGE_RECENT_CATEGORIES="false,false"
+select_purge_categories "old node_modules" "old dist" <<< $'\n' > /dev/null
+printf 'RESULT=[%s]\n' "$PURGE_SELECTION_RESULT"
+select_purge_categories "old node_modules" "old dist" <<< $'a\n' > /dev/null
+printf 'ALL=[%s]\n' "$PURGE_SELECTION_RESULT"
+SCRIPT
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"RESULT=[]"* ]] || return 1
+	[[ "$output" == *"ALL=[0,1]"* ]]
+}

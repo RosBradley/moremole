@@ -143,6 +143,7 @@ func feedRows(apps []localApp, fetch func(string) ([]byte, error), system string
 					Installed: firstNonEmpty(app.Short, app.Build),
 					Available: short,
 					Note:      feedNote,
+					Bundle:    app.BundleID,
 				}
 			}
 		})

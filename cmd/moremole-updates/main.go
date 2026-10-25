@@ -5,14 +5,18 @@
 // Each subcommand prints one row per update, fields separated by the ASCII
 // unit separator (0x1f) so empty fields survive a shell read:
 //
-//	kind  id  name  installed  available  note
+//	kind  id  name  installed  available  note  bundle
 //
 // kind is app (Homebrew cask), tool (Homebrew formula), store (App Store app),
 // macos (installable from Terminal), macos-settings (needs System Settings),
 // takeover (an app Homebrew can replace with a newer version), feed (an app
 // whose own updater has a newer version; id is the app's path) or notice (a
-// message for the user, with its key in id and its text in note). Nothing
-// starts selected: the user picks.
+// message for the user, with its key in id and its text in note). bundle is
+// the bundle identifier of the app a row updates, when known. Nothing starts
+// selected: the user picks.
+//
+// The host subcommand prints instead the bundle identifiers of the apps it
+// runs inside, one per line (host.go).
 package main
 
 import (
@@ -36,10 +40,11 @@ type Row struct {
 	Installed string
 	Available string
 	Note      string
+	Bundle    string // the app's bundle identifier, when known
 }
 
 func (r Row) String() string {
-	fields := []string{r.Kind, r.ID, r.Name, r.Installed, r.Available, r.Note}
+	fields := []string{r.Kind, r.ID, r.Name, r.Installed, r.Available, r.Note, r.Bundle}
 	for i, f := range fields {
 		fields[i] = strings.Map(func(c rune) rune {
 			if c == '\t' || c == '\n' || c == '\r' || c == 0x1f {
@@ -100,7 +105,7 @@ var homebrewDirs = []string{"/opt/homebrew/bin", "/usr/local/bin"}
 func findBrew() string { return findProgram("brew", homebrewDirs...) }
 
 func usage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "Usage: moremole-updates-go brew|store|macos|apps")
+	_, _ = fmt.Fprintln(w, "Usage: moremole-updates-go brew|store|macos|apps|host")
 }
 
 func main() {
@@ -118,6 +123,11 @@ func main() {
 		rows = scanMacOS()
 	case "apps":
 		rows = scanApps()
+	case "host":
+		for _, id := range scanHost() {
+			fmt.Println(id)
+		}
+		return
 	case "-h", "--help":
 		usage(os.Stdout)
 		return

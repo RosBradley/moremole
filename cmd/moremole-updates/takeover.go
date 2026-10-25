@@ -145,6 +145,7 @@ func takeoverRows(apps []localApp, index []caskInfo, managedTokens, managedApps 
 			Installed: app.Short,
 			Available: available,
 			Note:      "replaces your copy",
+			Bundle:    app.BundleID,
 		})
 	}
 	sortRows(rows)

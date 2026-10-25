@@ -43,8 +43,8 @@ readonly MOREMOLE_REPO_URL="github.com/RosBradley/moremole"
 readonly MOREMOLE_TAGLINE=("Deep clean and optimize your Mac." "Manage, update and remove apps.")
 
 # Lines around the items besides the banner: the line under the banner (blank,
-# or "more above"); a blank line and the description; a blank line and the
-# controls; plus the row the cursor rests on so the last line cannot scroll.
+# or "more above"); at least one blank line; and the bar at the bottom of the
+# window: a divider, the description and the keys; plus one spare row.
 readonly MOREMOLE_MENU_OVERHEAD=6
 
 # One entry per menu item, in reading order (row by row, left to right).
@@ -216,9 +216,10 @@ _moremole_item_row() {
 }
 
 # Draw the items with $1 (1-based) selected, one terminal line per row, then
-# a line describing the selected item.
+# the bar at the bottom of the window: a divider, a line describing the
+# selected item and the keys ($2, when given).
 moremole_show_menu_items() {
-    local selected="${1:-1}"
+    local selected="${1:-1}" controls="${2:-}"
     ((${#MOREMOLE_MENU_LABELS[@]} > 0)) || moremole_load_menu_items
     _moremole_menu_layout
 
@@ -292,7 +293,21 @@ moremole_show_menu_items() {
     if ((room > 3 && ${#desc} > room)); then
         desc="${desc:0:$((room - 3))}..."
     fi
-    printf '\r\033[2K\n\r\033[2K  %s%s%s\n' "$desc_color" "$desc" "$NC"
+
+    # The bar sits on the last rows of the window, like the command screen's,
+    # where the eyes go for what to press; the rows above it are cleared.
+    local size term_lines bar_rows=2 divider
+    size="$(_moremole_terminal_size)"
+    term_lines="${size%% *}"
+    [[ -z "$controls" ]] || bar_rows=3
+    printf -v divider '%*s' "$MOREMOLE_LAYOUT_TERM_COLS" ''
+    divider="${divider// /─}"
+    printf '\033[J\033[%d;1H' "$((term_lines - bar_rows + 1))"
+    printf '\r\033[2K%s%s%s\n' "$GRAY" "$divider" "$NC"
+    printf '\r\033[2K  %s%s%s' "$desc_color" "$desc" "$NC"
+    [[ -z "$controls" ]] || printf '\n\r\033[2K%s' "$controls"
+    # On a terminal the last row takes no newline, which would scroll it.
+    [[ -t 1 ]] || printf '\n'
 }
 
 # Print the item number (1-based) reached from $1 by key $2. Up and down keep

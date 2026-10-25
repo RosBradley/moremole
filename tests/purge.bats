@@ -910,7 +910,8 @@ PURGE_CATEGORY_SIZES="100,50,25"
 PURGE_CATEGORY_PROJECT_IDS_ARRAY=("project-a" "project-a" "project-b")
 PURGE_CATEGORY_PROJECT_PATHS_ARRAY=("~/work/obelisk" "~/work/obelisk" "~/work/atlas")
 PURGE_CATEGORY_SIZE_UNKNOWN_FLAGS_ARRAY=("false" "false" "false")
-select_purge_categories "A node_modules" "A dist" "B target" <<< $'x\n'
+# MoreMole: nothing starts selected, so A selects all first.
+select_purge_categories "A node_modules" "A dist" "B target" <<< $'ax\n'
 printf 'RESULT=%s\n' "$PURGE_SELECTION_RESULT"
 EOF
 
@@ -930,7 +931,8 @@ source "$PROJECT_ROOT/lib/clean/project.sh"
 
 PURGE_CATEGORY_SIZES="1,2,3"
 PURGE_CATEGORY_PROJECT_IDS_ARRAY=("project-a" "project-a" "project-b")
-select_purge_categories "A node_modules" "A dist" "B target" <<< $'x\n' > /dev/null
+# MoreMole: nothing starts selected, so A selects all first.
+select_purge_categories "A node_modules" "A dist" "B target" <<< $'ax\n' > /dev/null
 printf 'RESULT=%s\n' "$PURGE_SELECTION_RESULT"
 EOF
 
@@ -945,7 +947,8 @@ source "$PROJECT_ROOT/lib/clean/project.sh"
 
 PURGE_CATEGORY_SIZES="1,2"
 PURGE_CATEGORY_PROJECT_IDS_ARRAY=("" "project-a")
-select_purge_categories "Unknown node_modules" "A dist" <<< $'x\n' > /dev/null
+# MoreMole: nothing starts selected, so A selects all first.
+select_purge_categories "Unknown node_modules" "A dist" <<< $'ax\n' > /dev/null
 printf 'RESULT=%s\n' "$PURGE_SELECTION_RESULT"
 EOF
 
@@ -960,7 +963,8 @@ source "$PROJECT_ROOT/lib/clean/project.sh"
 
 PURGE_CATEGORY_SIZES="1,2"
 PURGE_CATEGORY_PROJECT_IDS_ARRAY=("inode:1:10" "inode:1:20")
-select_purge_categories "~/client-a/obelisk node_modules" "~/client-b/obelisk dist" <<< $'x\n' > /dev/null
+# MoreMole: nothing starts selected, so A selects all first.
+select_purge_categories "~/client-a/obelisk node_modules" "~/client-b/obelisk dist" <<< $'ax\n' > /dev/null
 printf 'RESULT=%s\n' "$PURGE_SELECTION_RESULT"
 EOF
 
@@ -976,12 +980,13 @@ PURGE_CATEGORY_SIZES="1,2,3"
 PURGE_CATEGORY_PROJECT_IDS_ARRAY=("a" "b" "c")
 PURGE_CATEGORY_PROJECT_PATHS_ARRAY=("~/client-a/obelisk" "~/client-b/obelisk" "~/client-c/atlas")
 # Search is case-insensitive and accepts vim navigation letters as query text.
-select_purge_categories "node_modules" "dist" "target" <<< $'/CLIENT-B\n \n' >/dev/null
+# MoreMole: nothing starts selected, so A selects all first.
+select_purge_categories "node_modules" "dist" "target" <<< $'a/CLIENT-B\n \n' >/dev/null
 [[ "$PURGE_SELECTION_RESULT" == "0,2" ]] || exit 1
 # Searching must restore the caller's shell matching mode.
 if shopt -q nocasematch; then exit 1; fi
 PURGE_CATEGORY_PROJECT_PATHS_ARRAY[1]="~/client-b/项目"
-LC_ALL=C select_purge_categories "node_modules" "dist" "target" <<< $'/项目\n \n' >/dev/null
+LC_ALL=C select_purge_categories "node_modules" "dist" "target" <<< $'a/项目\n \n' >/dev/null
 [[ "$PURGE_SELECTION_RESULT" == "0,2" ]]
 EOF
 	[ "$status" -eq 0 ]

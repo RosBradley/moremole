@@ -72,7 +72,7 @@ func TestNewerInFeedComparesBuildNumbersFirst(t *testing.T) {
 
 func TestFeedRowsListAppsWithANewerVersion(t *testing.T) {
 	apps := []localApp{
-		{Path: "/Applications/Postico 2.app", Name: "Postico 2", Short: "2.2", Build: "9000", FeedURL: "https://postico/feed"},
+		{Path: "/Applications/Postico 2.app", Name: "Postico 2", BundleID: "at.eggerapps.Postico2", Short: "2.2", Build: "9000", FeedURL: "https://postico/feed"},
 		{Path: "/Applications/Current.app", Name: "Current", Short: "2.3", Build: "9100", FeedURL: "https://postico/feed"},
 		{Path: "/Applications/Offline.app", Name: "Offline", Short: "1.0", Build: "1", FeedURL: "https://offline/feed"},
 	}
@@ -83,7 +83,7 @@ func TestFeedRowsListAppsWithANewerVersion(t *testing.T) {
 		return []byte(postico), nil
 	}
 	got := feedRows(apps, fetch, "15.1")
-	want := []Row{{Kind: "feed", ID: "/Applications/Postico 2.app", Name: "Postico 2", Installed: "2.2", Available: "2.3", Note: feedNote}}
+	want := []Row{{Kind: "feed", ID: "/Applications/Postico 2.app", Name: "Postico 2", Installed: "2.2", Available: "2.3", Note: feedNote, Bundle: "at.eggerapps.Postico2"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v\nwant %#v", got, want)
 	}

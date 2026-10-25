@@ -98,7 +98,7 @@ func TestTakeoverRowsOfferOnlyClearNewerMatches(t *testing.T) {
 	got := takeoverRows(apps, index, map[string]bool{"managed": true}, map[string]bool{})
 	want := []Row{
 		{Kind: "takeover", ID: "firefox", Name: "Firefox", Installed: "129.0", Available: "130.0", Note: "replaces your copy"},
-		{Kind: "takeover", ID: "vlc", Name: "VLC", Installed: "3.0.20", Available: "3.0.21", Note: "replaces your copy"},
+		{Kind: "takeover", ID: "vlc", Name: "VLC", Installed: "3.0.20", Available: "3.0.21", Note: "replaces your copy", Bundle: "org.videolan.vlc"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v\nwant %#v", got, want)

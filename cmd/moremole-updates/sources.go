@@ -124,6 +124,9 @@ func homebrewRows(outdated brewOutdated, infos map[string]caskInfo) []Row {
 		row := Row{Kind: "app", ID: c.Name, Name: c.Name, Installed: lastVersion(c.InstalledVersions), Available: c.CurrentVersion}
 		if known {
 			row.Name = info.displayName()
+			if names, _ := info.appNames(); len(names) > 0 {
+				row.Bundle = installedBundle(names[0])
+			}
 		}
 		switch {
 		case c.CurrentVersion == "latest" || (known && info.Version == "latest"):
@@ -173,6 +176,9 @@ func scanAppStore() []Row {
 	rows := parseMasOutdated(out)
 	if err != nil && len(rows) == 0 {
 		return []Row{notice("mas-failed", "mas couldn't check the App Store. Open the App Store app and make sure you're signed in.")}
+	}
+	for i := range rows {
+		rows[i].Bundle = installedBundle(rows[i].Name + ".app") // App Store apps keep their name
 	}
 	return rows
 }

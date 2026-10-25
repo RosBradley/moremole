@@ -185,19 +185,15 @@ show_main_menu() {
     fi
 
     # moremole: the list draws the line under the banner itself, holding
-    # "more above" when it has scrolled.
-    moremole_show_menu_items "$selected"
-
+    # "more above" when it has scrolled, and the bar at the bottom of the
+    # window with the description and these controls.
+    local controls=""
     if [[ -t 0 ]]; then
-        printf '\r\033[2K\n'
         local touchid_state=false
         is_touchid_configured && touchid_state=true
-        local controls
         controls=$(_main_menu_controls_line "$touchid_state" "${MAIN_MENU_SHOW_UPDATE:-false}")
-        printf '\r\033[2K%s\n' "$controls"
     fi
-
-    printf '\033[J'
+    moremole_show_menu_items "$selected" "$controls"
 }
 
 interactive_main_menu() {

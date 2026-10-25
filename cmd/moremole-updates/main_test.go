@@ -50,12 +50,33 @@ const outdatedJSON = `{
 }`
 
 const caskInfoJSON = `{"formulae": [], "casks": [
-  {"token": "visual-studio-code", "name": ["Microsoft Visual Studio Code"], "version": "1.89.0", "auto_updates": false},
+  {"token": "visual-studio-code", "name": ["Microsoft Visual Studio Code"], "version": "1.89.0", "auto_updates": false,
+   "artifacts": [{"app": ["Visual Studio Code.app"]}]},
   {"token": "google-chrome", "name": ["Google Chrome"], "version": "125.0", "auto_updates": true},
   {"token": "some-latest", "name": ["Some Latest"], "version": "latest"}
 ]}`
 
+// useApps puts fake apps, by file name and bundle identifier, in an
+// Applications folder of the test's own.
+func useApps(t *testing.T, apps map[string]string) {
+	t.Helper()
+	dir := t.TempDir()
+	byPath := map[string]string{}
+	for name, id := range apps {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		byPath[path] = id
+	}
+	savedDirs, savedBundle := appDirs, bundleOfApp
+	appDirs = func() []string { return []string{dir} }
+	bundleOfApp = func(path string) string { return byPath[path] }
+	t.Cleanup(func() { appDirs, bundleOfApp = savedDirs, savedBundle })
+}
+
 func TestScanHomebrewListsAppsAndToolsWithTheirDefaults(t *testing.T) {
+	useApps(t, map[string]string{"Visual Studio Code.app": "com.microsoft.VSCode"})
 	calls := useFakeCommands(t, map[string]string{"brew": "/opt/homebrew/bin/brew"}, map[string]fakeResponse{
 		"brew update --quiet":              {err: errors.New("offline")},
 		"brew outdated --json=v2 --greedy": {out: outdatedJSON, err: errors.New("exit status 1")},
@@ -65,7 +86,7 @@ func TestScanHomebrewListsAppsAndToolsWithTheirDefaults(t *testing.T) {
 	want := []Row{
 		notice("homebrew-stale", "Couldn't refresh Homebrew's version list, so recent updates may be missing."),
 		{Kind: "app", ID: "google-chrome", Name: "Google Chrome", Installed: "124.0", Available: "125.0", Note: "updates itself"},
-		{Kind: "app", ID: "visual-studio-code", Name: "Microsoft Visual Studio Code", Installed: "1.88.0", Available: "1.89.0"},
+		{Kind: "app", ID: "visual-studio-code", Name: "Microsoft Visual Studio Code", Installed: "1.88.0", Available: "1.89.0", Bundle: "com.microsoft.VSCode"},
 		{Kind: "app", ID: "no-info", Name: "no-info", Installed: "1.0", Available: "1.1"},
 		{Kind: "app", ID: "some-latest", Name: "Some Latest", Installed: "latest", Available: "latest", Note: "always reinstalls"},
 		{Kind: "tool", ID: "git", Name: "git", Installed: "2.44.0", Available: "2.45.0"},
@@ -99,6 +120,17 @@ func TestParseMasOutdated(t *testing.T) {
 	}
 	if got := parseMasOutdated(out); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v\nwant %#v", got, want)
+	}
+}
+
+func TestScanAppStoreFindsTheAppsBundle(t *testing.T) {
+	useApps(t, map[string]string{"Xcode.app": "com.apple.dt.Xcode"})
+	useFakeCommands(t, map[string]string{"mas": "/opt/homebrew/bin/mas"}, map[string]fakeResponse{
+		"mas outdated": {out: "497799835 Xcode (15.0 -> 15.1)\n409183694 Keynote\n"},
+	})
+	got := scanAppStore()
+	if len(got) != 2 || got[0].Bundle != "" || got[1].Bundle != "com.apple.dt.Xcode" {
+		t.Errorf("rows %#v", got)
 	}
 }
 
@@ -157,9 +189,9 @@ func TestScanMacOSWithNothingNewOrAFailure(t *testing.T) {
 }
 
 func TestRowStringKeepsFieldsApart(t *testing.T) {
-	row := Row{Kind: "app", ID: "x", Name: "A\tB\x1fC\nD", Installed: "", Available: "2"}
+	row := Row{Kind: "app", ID: "x", Name: "A\tB\x1fC\nD", Installed: "", Available: "2", Bundle: "com.x"}
 	fields := strings.Split(row.String(), fieldSeparator)
-	want := []string{"app", "x", "A B C D", "", "2", ""}
+	want := []string{"app", "x", "A B C D", "", "2", "", "com.x"}
 	if !reflect.DeepEqual(fields, want) {
 		t.Errorf("fields %q, want %q", fields, want)
 	}

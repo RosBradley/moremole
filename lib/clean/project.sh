@@ -1536,12 +1536,11 @@ select_purge_categories() {
     local rendered_width=0 menu_ready=true
 
     # Selection and group totals belong to the menu, keyed by canonical row index.
-    local -a selected=() sizes=() recent_flags=() age_labels=()
+    local -a selected=() sizes=() age_labels=()
     local -a group_starts=() group_ends=() row_groups=() group_sizes=() group_selected=() group_unknown=()
     local selected_size=0 selected_count=0 selected_unknown=0 group=-1
     local previous_project_id="" project_id=""
     IFS=',' read -r -a sizes <<< "${PURGE_CATEGORY_SIZES:-}"
-    IFS=',' read -r -a recent_flags <<< "${PURGE_RECENT_CATEGORIES:-}"
     IFS=',' read -r -a age_labels <<< "${PURGE_AGE_LABELS:-}"
     for ((i = 0; i < total_items; i++)); do
         project_id="${PURGE_CATEGORY_PROJECT_IDS_ARRAY[i]:-}"
@@ -1559,16 +1558,9 @@ select_purge_categories() {
         if [[ "${PURGE_CATEGORY_SIZE_UNKNOWN_FLAGS_ARRAY[i]:-false}" == true ]]; then
             group_unknown[group]=true
         fi
+        # MoreMole: nothing starts selected; the age column still shows
+        # which artifacts are old.
         selected[i]=false
-        if [[ "${recent_flags[i]:-false}" != true ]]; then
-            selected[i]=true
-            selected_count=$((selected_count + 1))
-            selected_size=$((selected_size + ${sizes[i]:-0}))
-            group_selected[group]=$((group_selected[group] + 1))
-            if [[ "${PURGE_CATEGORY_SIZE_UNKNOWN_FLAGS_ARRAY[i]:-false}" == true ]]; then
-                selected_unknown=$((selected_unknown + 1))
-            fi
-        fi
     done
     set_selected() {
         local index="$1" value="$2" delta=1
