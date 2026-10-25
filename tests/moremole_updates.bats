@@ -321,6 +321,62 @@ open $BATS_TEST_TMPDIR/Apps/Other.app" ] || { echo "$calls"; return 1; }
 	[ ! -s "$CALLS" ]
 }
 
+@test "a failed update names the tool's own error in the summary and History" {
+	# shellcheck disable=SC2016  # the fake brew expands its own arguments
+	mole_test_fake_command brew 'printf "brew %s\n" "$*" >> "$CALLS"
+printf "==> Downloading\n"
+printf "\033[31mError:\033[0m broken: Download failed: could not resolve host\n" >&2
+exit 1'
+	row scan app broken "Broken App" 1.0 2.0 ""
+	run updates_env /bin/bash -c '
+		source "$1"
+		load_update_rows < "$ROWS_DIR/scan"
+		install_updates 0
+		show_updates_summary
+	' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	# Shown live, then named in the summary.
+	[[ "$output" == *"==> Downloading"*"Download failed"*"Not updated: Broken App: broken: Download failed: could not resolve host"* ]] || return 1
+	grep -q "FAILED Broken App (broken: Download failed: could not resolve host)" "$HOME/Library/Logs/mole/operations.log"
+}
+
+@test "a cask stopped by Homebrew's own leftover copy is retried once with --force, nothing else is" {
+	# shellcheck disable=SC2016  # the fake brew expands its own arguments
+	mole_test_fake_command brew 'printf "brew %s\n" "$*" >> "$CALLS"
+case "$*" in
+	--caskroom) echo /opt/homebrew/Caskroom ;;
+	*--force*) exit 0 ;;
+	*font-x) echo "Error: font-x: It seems there is already a Font at '"'"'/opt/homebrew/Caskroom/font-x/3.4.0/X.ttf'"'"'." >&2; exit 1 ;;
+	*outside) echo "Error: outside: It seems there is already a Font at '"'"'/Users/me/Library/Fonts/X.ttf'"'"'." >&2; exit 1 ;;
+	*climber) echo "Error: climber: It seems there is already an App at '"'"'/opt/homebrew/Caskroom/climber/../other/A.app'"'"'." >&2; exit 1 ;;
+esac'
+	row scan app font-x "Font X" 3.4.0 3.5.1 ""
+	row scan app outside "Outside" 1.0 2.0 ""
+	row scan app climber "Climber" 1.0 2.0 ""
+	run updates_env /bin/bash -c '
+		source "$1"
+		load_update_rows < "$ROWS_DIR/scan"
+		install_updates 0 1 2
+		show_updates_summary
+		printf "updated=%s failed=%s\n" "$total_updated" "$total_failed"
+	' bash "$PROJECT_ROOT/bin/moremole-updates.sh"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"trying again with --force"* ]] || return 1
+	[[ "$output" == *"updated=1 failed=2"* ]] || return 1
+	[[ "$output" == *"Updated after replacing Homebrew's leftover copy: Font X"* ]] || return 1
+	[[ "$output" == *"Not updated: Outside: outside: It seems there is already a Font at '/Users/me/Library/Fonts/X.ttf'."* ]] || return 1
+
+	local calls
+	calls=$(cat "$CALLS")
+	[ "$calls" = "brew upgrade --cask --greedy font-x
+brew --caskroom
+brew upgrade --cask --greedy --force font-x
+brew upgrade --cask --greedy outside
+brew --caskroom
+brew upgrade --cask --greedy climber
+brew --caskroom" ] || { echo "$calls"; return 1; }
+}
+
 @test "updates is a command with help, completion and a menu row" {
 	run "$PROJECT_ROOT/mole" updates --help
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
