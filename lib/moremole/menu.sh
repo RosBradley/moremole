@@ -34,7 +34,7 @@ readonly MOREMOLE_BUILTIN_ROWS=(
     "Update MoreMole|update||Get the latest MoreMole and Mole changes, and rebuild if needed"
 )
 readonly MOREMOLE_SECTION_LABEL="My commands"
-readonly MOREMOLE_ADD_LABEL="+ Add a command"
+readonly MOREMOLE_ADD_LABEL="Add a command"
 readonly MOREMOLE_ADD_DESC="Add your own command to this menu"
 readonly MOREMOLE_MENU_COLUMNS=3
 readonly MOREMOLE_REPO_URL="github.com/RosBradley/moremole"
@@ -247,6 +247,8 @@ moremole_show_menu_items() {
     fi
 
     local row column index label kind line pad
+    # The section heading is a line across the window with its name centered.
+    local heading_left heading_right
     for ((row = MOREMOLE_MENU_TOP_ROW; row < MOREMOLE_MENU_TOP_ROW + visible; row++)); do
         line=""
         for ((column = 0; column < MOREMOLE_MENU_ROW_LEN[row]; column++)); do
@@ -257,7 +259,9 @@ moremole_show_menu_items() {
                 label="${label:0:$((max - 3))}..."
             fi
             if [[ "$kind" == "header" ]]; then
-                line+="  ${BLUE}── ${label} ──${NC}"
+                printf -v heading_left '%*s' "$(((MOREMOLE_LAYOUT_TERM_COLS - ${#label} - 2) / 2))" ''
+                printf -v heading_right '%*s' "$((MOREMOLE_LAYOUT_TERM_COLS - ${#label} - 2 - ${#heading_left}))" ''
+                line+="${BLUE}${heading_left// /─} ${label} ${heading_right// /─}${NC}"
             elif ((index + 1 == selected)); then
                 line+="${CYAN}${ICON_ARROW} ${label}${NC}"
             elif [[ "$kind" == "add" ]]; then
