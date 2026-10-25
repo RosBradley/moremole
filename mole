@@ -219,6 +219,8 @@ interactive_main_menu() {
         if [[ -n "$original_stty" ]]; then
             stty "$original_stty" 2> /dev/null || true
         fi
+        # moremole: back to the terminal as it was before the menu.
+        moremole_menu_leave_screen
         show_cursor
         exit 0
     }
@@ -229,6 +231,8 @@ interactive_main_menu() {
     }
 
     trap cleanup_and_exit INT
+    # moremole: the menu has a screen of its own (lib/moremole/menu.sh).
+    moremole_menu_enter_screen
     hide_cursor
     moremole_load_menu_items
 
@@ -276,11 +280,13 @@ interactive_main_menu() {
             "MORE") moremole_show_and_return show_help ;;       # moremole
             "VERSION") moremole_show_and_return show_version ;; # moremole
             "TOUCHID")
+                moremole_menu_leave_screen # moremole
                 show_cursor
                 exec "$SCRIPT_DIR/bin/touchid.sh"
                 ;;
             "UPDATE")
                 [[ "${MAIN_MENU_SHOW_UPDATE:-false}" == "true" ]] || continue
+                moremole_menu_leave_screen # moremole
                 show_cursor
                 clear
                 update_mole

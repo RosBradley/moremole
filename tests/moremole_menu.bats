@@ -526,3 +526,21 @@ update_mole true false
 	[[ "$output" == *"OFFICIAL_UPDATE true false"* ]] || return 1
 	[[ "$output" != *"SYNC_RAN"* ]]
 }
+
+@test "on the menu's own screen, clearing keeps the terminal's scrollback" {
+	run /bin/bash --noprofile --norc -c "$(prelude)"'
+clear() { printf "CLEAR_CALLED"; }
+printf "[%q]\n" "$(_moremole_clear_screen)" "$(_moremole_clear_all)" "$(moremole_menu_leave_screen)"
+MOREMOLE_MENU_SCREEN=true
+printf "[%q]\n" "$(_moremole_clear_screen)" "$(_moremole_clear_all)"
+moremole_menu_leave_screen > "$HOME/leave"
+printf "after=%s leave=[%q]\n" "$MOREMOLE_MENU_SCREEN" "$(cat "$HOME/leave")"
+'
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	# Without the menu's screen: clear, as before; leaving does nothing.
+	[[ "$output" == *"[CLEAR_CALLED]"$'\n'"[CLEAR_CALLED]"$'\n'"['']"* ]] || { echo "$output"; return 1; }
+	# On it: escape codes for the screen only, no clear (which empties the
+	# scrollback on macOS), and leaving switches back.
+	[[ "$output" == *"[\$'\\E[H\\E[2J']"$'\n'"[\$'\\E[?1049h\\E[H\\E[2J']"* ]] || { echo "$output"; return 1; }
+	[[ "$output" == *"after=false leave=[\$'\\E[?1049l']"* ]]
+}

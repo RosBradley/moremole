@@ -410,11 +410,46 @@ _moremole_summary_labels() {
     fi
 }
 
-# Clear the screen and the terminal's scrollback, so a command's output does
-# not pile up behind the menu.
+# The menu runs on the terminal's alternate screen, as full-screen apps do:
+# quitting leaves the terminal as it was before, and the terminal's own
+# marks (iTerm2's prompt marks) stay off the menu. The command screen goes
+# back to it when a command ends (MOREMOLE_MENU_SCREEN).
+MOREMOLE_MENU_SCREEN=false
+
+moremole_menu_enter_screen() {
+    [[ -t 1 ]] || return 0
+    printf '\033[?1049h\033[H\033[2J'
+    export MOREMOLE_MENU_SCREEN=true
+}
+
+moremole_menu_leave_screen() {
+    [[ "$MOREMOLE_MENU_SCREEN" == "true" ]] || return 0
+    printf '\033[?1049l'
+    export MOREMOLE_MENU_SCREEN=false
+}
+
+# Clear the screen for the menu. On the menu's own screen that is all it
+# takes, and a command that ended on the normal screen (Analyze and Status
+# leave their own full screen) is taken back to the menu's. Otherwise the
+# scrollback is cleared too, so a command's output does not pile up behind
+# the menu.
 _moremole_clear_all() {
+    if [[ "$MOREMOLE_MENU_SCREEN" == "true" ]]; then
+        printf '\033[?1049h\033[H\033[2J'
+        return 0
+    fi
     clear
     [[ ! -t 1 ]] || printf '\033[3J'
+}
+
+# Clear the screen only; on the menu's screen this keeps the terminal's
+# scrollback, which `clear` empties on macOS.
+_moremole_clear_screen() {
+    if [[ "$MOREMOLE_MENU_SCREEN" == "true" ]]; then
+        printf '\033[H\033[2J'
+    else
+        clear
+    fi
 }
 
 # The pane (moremole-view-go, cmd/moremole-view) runs a command between a
@@ -517,6 +552,8 @@ moremole_menu_activate() {
             fi
             ;;
         update)
+            # The update's output stays on the terminal after it ends.
+            moremole_menu_leave_screen
             show_cursor
             clear
             update_mole false false
@@ -533,10 +570,10 @@ moremole_menu_activate() {
         add | edit | remove)
             show_cursor
             drain_pending_input 0.1
-            clear
+            _moremole_clear_screen
             "_moremole_${kind}_my_command" "$args"
             hide_cursor
-            clear
+            _moremole_clear_screen
             moremole_load_menu_items
             ;;
     esac
@@ -714,11 +751,11 @@ show_brand_banner() {
 # Show a screen such as help or version, then come back to the menu.
 moremole_show_and_return() {
     show_cursor
-    clear
+    _moremole_clear_screen
     "$@"
     _moremole_wait_to_return
     hide_cursor
-    clear
+    _moremole_clear_screen
 }
 
 # Mole's own help screen and update notice, kept so new commands still show.

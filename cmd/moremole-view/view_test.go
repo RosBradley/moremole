@@ -411,3 +411,17 @@ func TestSearchTheFileList(t *testing.T) {
 		t.Error("second Q did not go back to the results")
 	}
 }
+
+func TestBackToMenuScreenOnlyWhenTheMenuHasOne(t *testing.T) {
+	var out bytes.Buffer
+	t.Setenv("MOREMOLE_MENU_SCREEN", "")
+	backToMenuScreen(&out)
+	if out.Len() != 0 {
+		t.Errorf("wrote %q without the menu's screen", out.String())
+	}
+	t.Setenv("MOREMOLE_MENU_SCREEN", "true")
+	backToMenuScreen(&out)
+	if out.String() != "\x1b[?1049h\x1b[H\x1b[2J" {
+		t.Errorf("wrote %q", out.String())
+	}
+}

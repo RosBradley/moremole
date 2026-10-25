@@ -114,6 +114,7 @@ func run(args []string, stdin, stdout *os.File, stderr io.Writer) int {
 	}
 	if err != nil || cancelled() {
 		leaveScreen(stdout)
+		backToMenuScreen(stdout)
 		return code
 	}
 
@@ -130,7 +131,17 @@ func run(args []string, stdin, stdout *os.File, stderr io.Writer) int {
 		leaveScreen(stdout)
 		_, _ = fmt.Fprintln(stderr, err)
 	}
+	backToMenuScreen(stdout)
 	return code
+}
+
+// backToMenuScreen returns to the menu's alternate screen (lib/moremole/menu.sh)
+// right after this one leaves it, so the normal screen never shows between
+// the command and the menu.
+func backToMenuScreen(out io.Writer) {
+	if os.Getenv("MOREMOLE_MENU_SCREEN") == "true" {
+		_, _ = io.WriteString(out, "\x1b[?1049h\x1b[H\x1b[2J")
+	}
 }
 
 // show runs the results screen until the user leaves it; tests pass their
