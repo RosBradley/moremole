@@ -1,6 +1,68 @@
 # Mole Security Audit
 
-This document describes the security-relevant behavior of the current `main` branch, updated for V1.63.0 on 2026-10-24. It is intended as a public description of Mole's safety boundaries, destructive-operation controls, release integrity signals, and known limitations.
+This document describes Mole CLI (macOS), with the 2026-10-26 review starting from `ec968fc8` on `main` (the code is unchanged from `00f8279e`). It covers safety boundaries, destructive-operation controls, release integrity signals, and known limitations. This is a maintainer review, not an independent security certification. Mole Mac and Mole for Windows are outside its scope.
+
+## Review Scope and Evidence
+
+The review covers the complete CLI, rather than only changes since V1.64.0. Concurrent work was initially excluded, then the committed Slim/whitelist, mounted-volume overview and fixture changes (`0f9c0df4`, `4f9abf8b`, `c8fe24f1`) received an incremental review and integration run. The subsequent `502b3483` changes only the contributors image. The following matrix identifies the reviewed boundaries and their regression suites; listing a suite does not claim that it passed in this review.
+
+| Surface | Boundary under review | Regression evidence |
+| --- | --- | --- |
+| Core filesystem and privilege helpers | Path protection, physical identity, whitelist, cancellation, timeout classification, sudo and Trash staging | `tests/core_safe_functions.bats`, `tests/file_ops_mole_delete.bats`, `tests/manage_sudo.bats` |
+| Automatic cleanup and developer caches | Disposable content, live/unknown owners, SQLite families, logs, external volumes and owner commands | `tests/clean_app_caches.bats`, `tests/clean_developer_state.bats`, `tests/clean_user_core.bats`, `tests/clean_dev_caches.bats` |
+| Uninstall | Exact ownership, sibling installs, metadata rechecks, user-data selection, process handling and final removal | `tests/uninstall_safety.bats`, `tests/uninstall_remove_file_list.bats`, `tests/uninstall_timeout.bats`, `tests/uninstall_process_pattern.bats` |
+| Purge and installer cleanup | Project boundaries, Git ownership, recent/live projects, incomplete scans and confirmation | `tests/purge.bats`, `tests/installer.bats`, `tests/installer_fd.bats` |
+| Optimize | Bounded maintenance, database recovery, scoped service actions, unknown results and cancellation | `tests/optimize_db.bats`, `tests/optimize_catalog.bats`, `tests/optimize_removal_outcomes.bats` |
+| Slim | Candidate ownership, signed resource seals, verified copies, running apps and replacement | `tests/slim.bats` |
+| Analyze | Asynchronous selection identity, confirmation, protected paths and the independent native Trash implementation | `cmd/analyze/*_test.go` |
+| Status and history | Read-only collection, partial/unknown data, output encoding and operation records | `cmd/status/*_test.go`, `tests/history.bats` |
+| Install, update and remove | Bootstrap trust, checksum/provenance verification, install locks and owned-file removal | `tests/install_checksum.bats`, `tests/update.bats`, `tests/uninstall.bats` |
+| Router, completion and Touch ID | Privileged entry rejection, argument handling, confirmation, shell-file ownership and PAM permissions | `tests/cli.bats`, `tests/completion.bats`, `tests/manage_sudo.bats` |
+| Tests, workflows and guidance | Enforced versus advisory gates, shipped inventory, release trust and current safety claims | `scripts/check.sh`, `scripts/test.sh`, `.github/workflows/`, `AGENTS.md`, `.claude/rules/` |
+
+### Findings Repaired in This Review
+
+Source repairs: `541690b5` for Analyze and `16f5c5d7` for developer cleanup.
+
+| Finding | Impact and repair | Regression evidence |
+| --- | --- | --- |
+| Hidden Analyze actions while deletion is active | Medium: hidden navigation/confirmation could dispatch another deletion without its prompt being visible. Busy mode now accepts quit and the existing safe refresh action only. | Old input cases failed; `lifecycle_test.go` pins selection, confirmation, dispatch and quit behavior. Refresh/delete lifecycle tests remain green. |
+| Moving a parent bypassed protected runtime leaves | Medium: moving Library/Containers or Group Containers could include protected Docker/OrbStack state. Existing state roots now protect their ancestors and aliases; Darwin user/cache structural roots protect EDR descendants. Empty containers and unrelated cache leaves remain eligible. | Six parent/alias assertions, five Darwin structural assertions and a linked-runtime physical-parent case failed before the fix. An initial overbroad empty-container refusal was reproduced and narrowed before delivery. |
+| Owner-cache commands followed a protected physical root | Medium: a configured symlink could bypass a physical whitelist entry before the tool cleaned it. Configured and physical roots now receive path/whitelist checks, including absent leaves and every Conda package root. | Four production owner-producer fixtures with mocked mutations and Conda multi-root coverage reject linked/protected roots while allowing ordinary roots and unprotected aliases. Signals propagate. |
+| Jupyter runtime was treated as disposable cache | Medium: the Python producer nominated [active connection metadata](https://docs.jupyter.org/en/latest/use/jupyter-directories.html#runtime-files). It no longer emits this target, and the shared clean boundary protects its root and children. Explicit uninstall keeps its separate policy. | Producer and final-sink fixtures fail on old source, pass after repair, and preserve the ordinary Python cache positive control. |
+
+The underlying file operations remain path-based. These changes reduce demonstrated authorization gaps; they do not create an atomic lease against concurrent hostile replacement. No command, flag, setting or new output mode was added. User-visible changes are refusal of the unsafe targets and ignored hidden busy-state actions.
+
+### Residual Closure Follow-up
+
+The follow-up freezes `main` at `32b70a91` and `windows` at `d1ab34a2`, rechecks every limitation below and repairs two further macOS defects in `bc3d642a` (history JSON) and `79e255a8` (owner interruption). The Windows review owns its Store-manifest and lint-gate fixes. This is an incremental closure of the complete review, not a new release or certification.
+
+| Finding | Repair and visible change | Regression evidence |
+| --- | --- | --- |
+| Invalid UTF-8 made history output invalid JSON | `history_json_escape` preserves valid scalar sequences and replaces each malformed byte with U+FFFD in JSON only. Raw logs, text mode and action paths remain unchanged. No new flag or output field. | Both the byte-level helper and the real history router failed on old source. Tests cover every nonzero byte, canonical scalar boundaries, overlong/surrogate/out-of-range/truncated encodings, deterministic mixed-byte inputs, valid multilingual text and unchanged log bytes. |
+| Physical cache-root lookup swallowed interruption | `owner_cache_root_is_safe` preserves the failing subshell status instead of collapsing it to an ordinary refusal. An interrupted lookup now cancels later cleanup; an ordinary lookup failure still skips only that cache. | The real `clean_uv_cache` caller failed on old source. Executable fixture owners and probes cover interrupted, failed and successful `cd`/`pwd` paths without invoking a real cache command. |
+
+Follow-up verification is recorded in [the audit log](docs/weekly-audit.md#2026-10-26-residual-closure). The original verification and its test-isolation correction below remain historical evidence, not a claim that every earlier test was mocked.
+
+### Verification Receipt
+
+The original isolated source plus this review's fixes passed the complete `TERM=xterm-256color MOLE_TEST_NO_AUTH=1 ./scripts/test.sh`, exit 0 with the runner's `All tests passed!` summary. Final integration on `c8fe24f1` plus the owned patch: passed with exit 0 and the runner's `All tests passed!` summary; the final linked-runtime Go follow-up was then checked with the full Go/race/build/lint gates. Formatting, `check.sh --no-format`, `make build`, full Go tests and Analyze race tests passed. An existing asynchronous-cache test cleanup race surfaced during validation; its test now waits for the completed cache publication instead of tearing down its temporary HOME while the writer is active. The focused race test passed 100 repetitions.
+
+The launcher matrix used eight isolated fixtures: Steam, Epic, GOG, Battle.net, Parallels, UTM, Ollama and LM Studio. Only exact cache leaves were classified as automatic leftovers; application-support/container data stayed personal and default-kept, and shared Steam/Epic roots were excluded. Fixture identifiers are explicit inputs, not evidence of real installed-app or custom-library acceptance. Cross-CLI review found Windows already has the corresponding busy and protected-descendant boundaries, no Jupyter runtime cleanup target, and a separate guarded owner-root policy; its batch identity repair is recorded in that branch's security review.
+
+Test-isolation correction: the first two Jupyter red runs used shell-function owner mocks that the external timeout process did not inherit, so real `pip3 cache purge` and `uv cache prune` commands ran. HOME was a disposable fixture; subsequent read-only queries in the same layout resolved both default cache roots inside it. The original owner output and effective roots were not retained, so external-cache impact cannot be ruled out or quantified from that run. The fixture now mocks the timeout dispatch itself, and subsequent targeted and complete runs use that corrected isolation. No real application uninstall, privileged cleanup, new release or package acceptance was performed.
+
+GitHub CI must be read at the final pushed revision, separately from these local receipts. Published V1.64.0 does not contain this review's repairs.
+
+### Changes Since the Recorded CLI Review Baseline
+
+Compared with the `70eed1b0` baseline recorded in [the audit log](docs/weekly-audit.md), the source now includes:
+
+- `797a484c`: exact UUID-container metadata and NativeMessaging manifest ownership, with identity/content checks at the removal boundary. JetBrains selectors remain bound to the reviewed app metadata. The new cases are in `tests/uninstall_safety.bats` and `tests/uninstall_remove_file_list.bats`.
+- `52c5a7fa` and `9c33da94`: named application caches recheck their owner at the final sink without refreshing away the original path identity. Purge requires stronger node-project evidence and checks activity again before removal. Neighboring idle, live, unknown and replacement cases are covered in `tests/clean_app_caches.bats` and `tests/purge.bats`.
+- `530cc2b7`: Slim preserves files hashed by an enclosing resource seal and excludes originals Gatekeeper explicitly rejects. `0f9c0df4` also checks whitelist protection during discovery and again before replacement. Signature acceptance still does not prove compatibility with an application's own integrity checks.
+
+These are specific improvements to ownership and deletion authorization. A lower finding count or a passing test suite alone would not establish that every cleanup target is safe. The remaining boundaries are listed below, and the repair evidence is recorded above.
 
 ## Executive Summary
 
@@ -38,7 +100,7 @@ The highest-risk areas in Mole are:
 - it does not require sudo
 - it respects normal user permissions and SIP
 - delete actions require explicit confirmation
-- deletion routes through Finder Trash behavior rather than direct permanent removal
+- deletion routes to Trash rather than direct permanent removal, through the native `trash` utility, a no-overwrite filesystem move, or Finder as the final fallback
 
 ## Destructive Operation Boundaries
 
@@ -133,11 +195,13 @@ In addition to path blocking, these categories are protected:
 
 ## Implementation Details
 
-All cleanup and app-data deletion routes pass through `lib/core/file_ops.sh`:
+Shell file-removal helpers are centralized in `lib/core/file_ops.sh`:
 
 - `validate_path_for_deletion()` - Empty, relative, traversal checks
 - `should_protect_path()` - Prefix and pattern matching
 - `safe_remove()`, `safe_find_delete()`, `safe_sudo_remove()` - Guarded operations
+
+Owner-managed cleanup commands in `lib/clean/dev.sh`, maintenance actions, and the Go Analyze implementation have separate execution paths. They require their own scope, preview, timeout and result checks; the presence of a guard in `file_ops.sh` does not prove those paths are protected.
 
 The current design rationale is kept in this audit document so the safety model stays next to the implementation notes.
 
@@ -255,7 +319,7 @@ Mole exposes multiple safety controls before and during destructive actions:
 - interactive high-risk flows require explicit confirmation before deletion
 - purge marks recent projects conservatively and leaves them unselected by default
 - purge configuration is written atomically (mktemp then rename) to prevent partial writes if the process is interrupted
-- analyzer delete uses Finder Trash rather than direct permanent removal
+- analyzer delete uses its native utility, filesystem move or Finder Trash path rather than direct permanent removal
 - operation logs are written to `~/Library/Logs/mole/operations.log` unless disabled with `MO_NO_OPLOG=1`
 - `mole_delete` Trash and permanent deletion attempts are also recorded by the file-operation layer with result status, target path, and error context where available
 - `mo history` (`lib/core/history.sh`) is read-only: it reads `operations.log` and `deletions.log` to surface recent cleanup activity and performs no deletion or out-of-bounds writes
@@ -280,6 +344,14 @@ Optimize tasks are maintenance actions rather than bulk deletion, but they still
 - Spotlight orphan rule cleanup operates only in the user domain through `defaults`, runs under a dry-run guard, removes only entries whose app is confirmed no longer installed (`bundle_has_installed_app`), requires a well-formed reverse-DNS bundle ID, and never touches `System.*` or `com.apple.*` rules. It parses a complete typed snapshot before app resolution and verifies that snapshot again before writing; malformed, partial, or changed data is retained.
 - Font Cache Rebuild (`atsutil databases -remove`) was removed because clearing the font cache could corrupt font rendering with no reliable benefit.
 
+## Slim and Signed Application Contents
+
+`mo slim` is the explicit exception to the rule against modifying third-party app bundles. It removes Intel slices from eligible universal apps on Apple Silicon, without sudo. Candidates are limited to supported application roots and one ordinary directory below them, must be owned by the invoking user with owned contents and a writable parent, and must carry a Developer ID signature. System, App Store, unsigned, ad-hoc, Rosetta-preferred and protected apps are excluded. A running app is retained when processing begins and checked again before replacement.
+
+The command modifies a staging copy. It preserves resource files and any executable an enclosing signature seals by a plain content hash, verifies the remaining Apple Silicon slices, performs deep strict signature verification, checks the Team ID, and requires Gatekeeper acceptance of the copy. It does not re-sign the bundle. The narrowly accepted FinderInfo/ResourceFork repair applies only to the copy and must pass verification before thinning proceeds.
+
+Only a verified copy may replace the original, which is moved to Trash through the identity-bound `mole_delete` path. INT and TERM are deferred across that move and the final rename. If the rename fails, the original remains in Trash and the command reports that state; this is not an atomic swap or an automatic rollback. Signature and Gatekeeper checks cannot establish compatibility with every vendor's runtime integrity checks. App updates can restore the removed slices. `tests/slim.bats` covers the controlled replacement and refusal paths; real-app compatibility is a separate acceptance surface.
+
 ## Release Integrity and Continuous Security Signals
 
 Mole treats release trust as part of its security posture, not just a packaging detail.
@@ -296,7 +368,7 @@ Repository-level signals include:
 - curated changelog-driven release notes for user-visible changes
 - published SHA-256 checksums for release assets
 - GitHub artifact attestations for release assets
-- install-time verification of the GitHub Actions build-provenance attestation: `install.sh` runs `gh attestation verify` scoped to the exact `tw93/Mole` repository (with `--deny-self-hosted-runners`) on the downloaded asset when the GitHub CLI is available, and a mismatch is treated as fatal before checksums are read. This moves attestation from a release-side artifact to an install-side check.
+- install-time verification of the GitHub Actions build-provenance attestation: when the GitHub CLI is installed and authenticated, `install.sh` verifies the downloaded `SHA256SUMS` file with `gh attestation verify`, scoped to `tw93/Mole` and `--deny-self-hosted-runners`. Each binary is then checked against that file. A failed attestation or checksum aborts instead of falling back to a source build. If `gh` is absent or unauthenticated, the default is checksum-only verification; `MOLE_REQUIRE_ATTESTATION=1` refuses that unavailable-verification state.
 
 These controls do not eliminate all supply-chain risk, but they make release changes easier to review and verify.
 
@@ -321,6 +393,7 @@ There is no single `tests/security.bats` file. Instead, security-relevant behavi
 - `tests/path_validation_fuzz.bats`
 - `tests/history.bats`
 - `tests/core_timeout.bats`
+- `tests/slim.bats`
 - `cmd/analyze/*_test.go`
 
 Key coverage areas include:
@@ -349,17 +422,23 @@ Key coverage areas include:
 
 ## Known Limitations and Future Work
 
-- Cleanup is destructive. Most cleanup flows do not provide undo.
-- `mo analyze` delete is safer because it uses Trash, but other cleanup flows are permanent once confirmed.
-- `mo uninstall` now routes more removals through Trash, but Trash availability, permissions, and volume behavior still depend on the local macOS environment.
-- Generic orphan data waits 30 days before cleanup; this is conservative but heuristic.
-- Claude VM orphan cleanup waits 7 days before cleanup; this is also heuristic.
-- Time Machine safety windows are hour-based and intentionally conservative.
-- Localized app names may still be missed in some heuristic paths, though bundle IDs are preferred where available.
-- Users who want immediate removal of app data should use explicit uninstall flows rather than waiting for orphan cleanup.
-- Release artifacts include checksums and attestations, but downstream package-manager trust also depends on external distribution infrastructure.
-- Operation and deletion logs write control bytes as `\n`, `\r`, `\t` or `\xHH` and leave backslashes literal, so a filename holding a backslash followed by `n` reads the same as one holding a newline. Every call still appends one record, so nothing can be forged; only that one shape is ambiguous.
-- `mo history --json` escapes strings byte by byte under `LC_ALL=C` (`history_json_escape`) for portable behavior on bash 3.2. Printable multibyte bytes are emitted verbatim, so the emitted JSON stays valid UTF-8, but the escaper does not perform Unicode-aware codepoint iteration. This is a known display-layer detail, not a correctness issue.
-- Planned follow-up work includes stronger destructive-command threat modeling, more regression coverage for high-risk paths, and continued hardening of release integrity and disclosure workflow.
+The 14 entries from the initial report were individually rechecked. M13 is repaired; the other 13 retain the stated product, operating-system or verification boundary rather than representing an unimplemented patch.
+
+| ID | Disposition | Reason and current boundary |
+| --- | --- | --- |
+| M01 | No code change | Permanent cleanup has no general undo. Changing every cleanup to Trash would change its existing reclaim-space contract. |
+| M02 | No code change | Final path/owner checks reduce replacement risks but do not hold an atomic lease across a filesystem or third-party owner action. An owner can start after its last idle check. |
+| M03 | No code change | Multi-file operations can stop after partial completion. Synchronous logs retain known outcomes, not a transaction or crash-recovery guarantee. Slim likewise retains the original in Trash if final replacement fails; automatically restoring over a concurrently created target would be unsafe. |
+| M04 | No code change | Analyze explicitly uses Trash; other confirmed cleanup remains permanent. These command-specific recovery semantics are intentional. |
+| M05 | No code change | Uninstall Trash operations still depend on macOS permissions, volume behavior and Trash availability; failures preserve remaining targets rather than falling back to permanent deletion. |
+| M06 | No code change | Generic orphan cleanup's 30-day threshold is only one guard. It is limited to caches, logs and saved application state, requires complete installed-app evidence and rechecks bundle ownership and identity. A nonstandard installation invisible to that inventory remains a discovery limit. |
+| M07 | No code change | Claude VM orphan cleanup requires seven days, absent exact bundle ownership, no live/unknown owner and a final ownership recheck. The age alone is not authorization; invisible installations remain a discovery limit. |
+| M08 | No code change | Time Machine windows intentionally use conservative hour-based retention; there is no demonstrated unsafe boundary requiring a finer unit. |
+| M09 | No code change | Bundle IDs and localized metadata are preferred, but incomplete metadata or nonstandard installation locations can still defeat name-based discovery. Broader guessed-name deletion would weaken ownership. |
+| M10 | No code change | Immediate app-data removal belongs to the separately confirmed uninstall flow, not shortening automatic orphan retention. |
+| M11 | No code change | Checksums and available attestations do not eliminate bootstrap or downstream distribution trust. A second hash from the same source would not resolve that boundary. |
+| M12 | No code change | Control bytes cannot forge extra records, but literal backslash escapes can display like escaped control bytes. Logs are user-writable, not tamper-resistant evidence; adding a same-user signature would not establish independent trust. |
+| M13 | Fixed and regression-tested | History JSON now validates UTF-8 and renders malformed bytes as U+FFFD, preserving valid text and stored log bytes. See the follow-up above. |
+| M14 | Ongoing verification | Threat modeling, regression coverage and release/disclosure hardening are continuing review duties, not a specific unresolved defect. Fixtures and source checks do not prove every installed application, signed package or machine. |
 
 For reporting procedures and supported versions, see [SECURITY.md](SECURITY.md).

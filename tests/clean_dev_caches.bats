@@ -53,6 +53,9 @@ clean_pnpm_stores() { :; }
 clean_corepack_cache() { :; }
 clean_conda_metadata_caches() { :; }
 run_with_timeout() { shift; "$@"; }
+mkdir -p "$HOME/protected-owner" "$HOME/owner-parent/cache"
+[[ -L "$HOME/owner-alias" ]] || ln -s "$HOME/protected-owner" "$HOME/owner-alias"
+[[ -L "$HOME/owner-parent-alias" ]] || ln -s "$HOME/owner-parent" "$HOME/owner-parent-alias"
 owner_stub() {
     case "$*" in
         --version) return 0 ;;
@@ -64,6 +67,9 @@ owner_stub() {
                 relative) echo relative-cache ;;
                 multiline) printf '%s\nextra\n' "$HOME/protected-owner" ;;
                 empty) return 0 ;;
+                linked | allowed_link) printf '%s\n' "$HOME/owner-alias" ;;
+                ancestor) printf '%s\n' "$HOME/owner-parent-alias/cache" ;;
+                protected) printf '%s\n' "$HOME/.prometheus/data" ;;
                 *) printf '%s\n' "$HOME/protected-owner" ;;
             esac ;;
         'cache prune' | 'cache clean --force' | 'cache purge' | 'cache clear')
@@ -75,10 +81,11 @@ eval "$OWNER_TOOL() { owner_stub \"\$@\"; }"
 if [[ "$OWNER_TOOL" == pip3 ]]; then clean_uv_cache() { :; }; fi
 unset MISE_CACHE_DIR
 export UV_CACHE_DIR="$HOME/protected-owner"
-for probe_mode in failed timeout signal relative multiline empty whitelisted known; do
+for probe_mode in failed timeout signal relative multiline empty whitelisted linked ancestor protected known allowed_link; do
     MOLE_CLEAN_CANCEL_STATUS=0
     WHITELIST_PATTERNS=("$HOME/protected-owner")
-    [[ "$probe_mode" != known && "$probe_mode" != failed ]] || WHITELIST_PATTERNS=()
+    [[ "$probe_mode" != known && "$probe_mode" != failed && "$probe_mode" != allowed_link ]] || WHITELIST_PATTERNS=()
+    [[ "$probe_mode" != ancestor ]] || WHITELIST_PATTERNS=("$HOME/owner-parent/cache")
     : > "$HOME/owner-root.trace"
     rc=0
     "$OWNER_ENTRY" || rc=$?
@@ -87,7 +94,7 @@ for probe_mode in failed timeout signal relative multiline empty whitelisted kno
     else
         [[ "$rc" == 0 ]] || exit 1
     fi
-    if [[ "$probe_mode" == known ]]; then
+    if [[ "$probe_mode" == known || "$probe_mode" == allowed_link ]]; then
         [[ "$(cat "$HOME/owner-root.trace")" == owner ]] || exit 1
     else
         [[ ! -s "$HOME/owner-root.trace" ]] || { echo "UNEXPECTED:$probe_mode"; exit 1; }
@@ -4669,6 +4676,102 @@ EOF
     assert_owner_cleanup_requires_confirmed_root uv clean_uv_cache
 }
 
+@test "owner cache root validation propagates signals before any mutation" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+DRY_RUN=false
+WHITELIST_PATTERNS=()
+run_with_timeout() { shift; "$@"; }
+validate_path_for_deletion() { return 130; }
+owner_mutation() { echo MUTATED; }
+conda() {
+    case "$*" in
+        --version) return 0 ;;
+        'info --json') printf '{"pkgs_dirs":["%s/cache"]}\n' "$HOME" ;;
+        *) owner_mutation ;;
+    esac
+}
+rc=0
+clean_tool_cache "fixture" "$HOME/cache" owner_mutation || rc=$?
+[[ "$rc" == 130 ]] || exit 1
+rc=0
+clean_conda_metadata_caches || rc=$?
+[[ "$rc" == 130 ]] || exit 1
+echo SIGNALS_PRESERVED
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *SIGNALS_PRESERVED* && "$output" != *MUTATED* ]] || return 1
+}
+
+@test "owner cache physical resolution preserves interruption and ordinary failures" {
+    mkdir -p "$HOME/resolution-cache" "$HOME/resolution-bin"
+    cat > "$HOME/resolution-bin/uv" <<'SCRIPT'
+#!/bin/bash
+case "$*" in
+    --version) exit 0 ;;
+    'cache dir') printf '%s\n' "$HOME/resolution-cache" ;;
+    'cache prune') printf 'OWNER\n' >> "$TRACE" ;;
+    *) exit 97 ;;
+esac
+SCRIPT
+    cat > "$HOME/resolution-bin/path-probe" <<'SCRIPT'
+#!/bin/bash
+printf 'RESOLVE\n' >> "$TRACE"
+case "$PROBE_STATE" in
+    signal) kill -TERM "$$" ;;
+    failure) exit 1 ;;
+    success) exit 0 ;;
+esac
+SCRIPT
+    chmod +x "$HOME/resolution-bin/uv" "$HOME/resolution-bin/path-probe"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" PATH="$HOME/resolution-bin:$PATH" \
+        TRACE="$HOME/resolution.trace" MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+DRY_RUN=false
+WHITELIST_PATTERNS=()
+cd() {
+    builtin cd "$@" || return $?
+    if [[ "$PWD" == "$HOME/resolution-cache" && "$PROBE_AT" == cd ]]; then
+        "$HOME/resolution-bin/path-probe" || return $?
+    fi
+}
+pwd() {
+    if [[ "$PWD" == "$HOME/resolution-cache" && "$PROBE_AT" == pwd ]]; then
+        "$HOME/resolution-bin/path-probe" || return $?
+    fi
+    builtin pwd "$@"
+}
+for PROBE_AT in cd pwd; do
+    for PROBE_STATE in signal failure success; do
+        export PROBE_STATE
+        : > "$TRACE"
+        rc=0
+        clean_uv_cache || rc=$?
+        grep -qx RESOLVE "$TRACE" || exit 1
+        if [[ "$PROBE_STATE" == signal ]]; then
+            [[ "$rc" == 143 ]] || { echo "LOST_SIGNAL:$PROBE_AT:$rc"; exit 1; }
+        else
+            [[ "$rc" == 0 ]] || exit 1
+        fi
+        if [[ "$PROBE_STATE" == success ]]; then
+            grep -qx OWNER "$TRACE" || exit 1
+        elif grep -qx OWNER "$TRACE"; then
+            echo "UNEXPECTED_OWNER:$PROBE_AT:$PROBE_STATE"
+            exit 1
+        fi
+    done
+done
+echo RESOLUTION_GUARD_OK
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *RESOLUTION_GUARD_OK* ]] || return 1
+}
+
 @test "npm owner cleanup requires a confirmed cache root" {
     assert_owner_cleanup_requires_confirmed_root npm clean_dev_npm
 }
@@ -4689,6 +4792,8 @@ source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/dev.sh"
 run_with_timeout() { shift; "$@"; }
 note_activity() { :; }
+mkdir -p "$HOME/conda-kept"
+ln -s "$HOME/conda-kept" "$HOME/conda-alias"
 conda() {
     case "$*" in
         --version) return 0 ;;
@@ -4703,6 +4808,8 @@ conda() {
                 itemtype) echo '{"pkgs_dirs":["/first",1]}' ;;
                 newline) printf '{"pkgs_dirs":["/first\\n"]}\n' ;;
                 single) printf '{"pkgs_dirs":["%s/first-cache"]}\n' "$HOME" ;;
+                linked) printf '{"pkgs_dirs":["%s/first-cache","%s/conda-alias"]}\n' "$HOME" "$HOME" ;;
+                state) printf '{"pkgs_dirs":["%s/first-cache","%s/.prometheus/data"]}\n' "$HOME" "$HOME" ;;
                 wrongtype) echo '{"pkgs_dirs":"/unexpected"}' ;;
                 relative) echo '{"pkgs_dirs":["/first","relative"]}' ;;
                 *) printf '{"platform":"osx-arm64","active_prefix":null,"root_writable":true,"pkgs_dirs":["%s/first-cache","%s/custom-cache"],"envs":[]}\n' "$HOME" "$HOME" ;;
@@ -4712,10 +4819,11 @@ conda() {
     esac
 }
 for DRY_RUN in false true; do
-    for probe_mode in protected child failed timeout signal malformed missing empty itemtype newline wrongtype relative single known; do
+    for probe_mode in protected state linked child failed timeout signal malformed missing empty itemtype newline wrongtype relative single known; do
         WHITELIST_PATTERNS=()
         [[ "$probe_mode" != protected ]] || WHITELIST_PATTERNS=("$HOME/custom-cache")
         [[ "$probe_mode" != child ]] || WHITELIST_PATTERNS=("$HOME/custom-cache/keep")
+        [[ "$probe_mode" != linked ]] || WHITELIST_PATTERNS=("$HOME/conda-kept")
         : > "$HOME/conda-root.trace"
         rc=0
         clean_conda_metadata_caches || rc=$?

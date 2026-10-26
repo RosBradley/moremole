@@ -34,6 +34,15 @@ case "$FAMILY" in
         positive="$HOME/.oh-my-zsh/cache/rebuildable"
         cleanup=clean_dev_shell
         ;;
+    jupyter)
+        targets=("$HOME/.jupyter/runtime/kernel-fixture.json")
+        positive="$HOME/.pyenv/cache/rebuildable"
+        cleanup=clean_dev_python
+        pip3() { return 1; }
+        uv() { return 1; }
+        conda() { return 1; }
+        run_with_timeout() { shift; "$@"; }
+        ;;
 esac
 for target in "${targets[@]}" "$positive"; do
     mkdir -p "$(dirname "$target")"
@@ -80,6 +89,9 @@ if [[ "$BOUNDARY" == sink ]]; then
     if [[ "$FAMILY" == wal ]]; then
         should_protect_path "$HOME/.prometheus/data" || exit 1
     fi
+    if [[ "$FAMILY" == jupyter ]]; then
+        should_protect_path "$HOME/.jupyter/runtime" || exit 1
+    fi
 fi
 printf 'SAFE:%s:%s\n' "$FAMILY" "$BOUNDARY"
 EOF
@@ -112,4 +124,12 @@ EOF
 
 @test "cleanup sink protects an open Git config lock without blocking uninstall" {
     probe_developer_state lock sink
+}
+
+@test "developer cleanup never nominates Jupyter runtime connection files" {
+    probe_developer_state jupyter candidate
+}
+
+@test "cleanup sink protects Jupyter runtime without blocking uninstall" {
+    probe_developer_state jupyter sink
 }

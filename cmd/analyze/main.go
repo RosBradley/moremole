@@ -201,6 +201,7 @@ func createOverviewEntriesWithInsights(insightEntries []dirEntry) []dirEntry {
 	}
 
 	entries = append(entries, systemOverviewRoots()...)
+	entries = append(entries, mountedVolumeOverviewEntries()...)
 
 	// Hidden space insights: paths that silently accumulate disk usage.
 	entries = append(entries, insightEntries...)

@@ -2,6 +2,66 @@
 
 One entry per run of `.claude/skills/weekly-audit`, newest first, covering Mole CLI (macOS) on `main` and Mole CLI (Windows) on `windows`. The next run reads the newest entry for its commit window (`Next window from`), for the items it must not report again (`Decided, do not re-report`), and rechecks `Open` first. Facts here are a run record; lasting invariants live in `AGENTS.md` on each branch.
 
+## 2026-10-26 Residual closure
+
+- Frozen follow-up sources: main `32b70a91` and windows `d1ab34a2`, both matching their remote branches. The earlier complete review remains the module baseline; this follow-up covers its residual entries and affected callers.
+- Queue: all 24 original limitation entries, M01-M14 in the [macOS audit](../SECURITY_AUDIT.md#known-limitations-and-future-work) and W01-W10 in the [Windows audit](https://github.com/tw93/Mole/blob/windows/SECURITY_AUDIT.md#known-limitations). Two are fixed, 22 retain explicitly explained product/system/evidence boundaries. Two additional concrete gaps found during closure are also fixed below. No entry was silently dropped.
+- Source repairs: main `bc3d642a` and `79e255a8`; windows `3b6b0b0b` and `20d12930`, with review record `954312b5`.
+- Next window from: main `79e255a8`, windows `954312b5`.
+
+| Item | Disposition | Evidence |
+| --- | --- | --- |
+| M13: malformed history JSON | Fixed | The shared Bash 3.2 encoder validates scalar sequences and replaces each invalid byte with U+FFFD only in JSON. Helper and actual-router old-source tests fail; valid UTF-8 and raw stored logs remain intact. |
+| W06: unreadable Store manifest | Fixed | Discovery, preview and removal require readable manifest evidence, not just readable package inventory. Sparse/unknown manifests retain the package; ordinary manifests remain eligible. App-cache v7 invalidates rows created under the old rule. Old-source native tests: 142 passed, 11 failed; both PowerShell engines pass the 205-test affected set. |
+| Physical owner-root resolution cancellation | Fixed | A failed resolution subshell returns its original status. Real owner-caller fixture tests cover cd/pwd interruption, ordinary refusal and success; the old source loses the signal. |
+| Advisory Windows Go lint | Fixed | The remaining read-only handle-close warning is explicitly handled without changing identity authorization. Windows-target ARM64/AMD64 lint passes, and Check no longer ignores lint failure. `actionlint` passes. Heuristic source-pattern warnings remain review aids, not a comprehensive security gate. |
+
+Verification: the follow-up complete `TERM=xterm-256color MOLE_TEST_NO_AUTH=1 ./scripts/test.sh` passed with exit 0 and the runner's `All tests passed!` summary, including Go, module-loading, integration and isolated installation checks. Formatting, `check.sh --no-format` and ShellCheck for both changed Bats files pass. Windows native PowerShell 5.1.26100.9711 and 7.6.7, Pester 6.2.0, each pass 205 targeted tests with zero failures/skips. Subsequent full-suite launches lost the Parallels guest-exec result channel (`PrlJob_GetRetCode: Invalid argument`); execution and results cannot be confirmed, and retries stopped. Do not substitute the earlier 681-test receipts or cross-builds for this revision's native full suite. A successful final-head Windows CI run must supply the remaining native full-suite evidence, independently of local targeted results. No real app uninstall, new package or release is part of this follow-up.
+
+Cross-CLI disposition is recorded in existing CLI-SYNC-04, CLI-SYNC-12 and CLI-SYNC-16 rows. Windows history decodes into .NET strings before `ConvertTo-Json`, so it does not share the Bash byte-emission defect. Windows owner-root queries keep their existing checked-result contract, and macOS has no Appx manifest consumer. No platform-specific policy was copied into an unrelated consumer.
+
+Decided, do not re-report: retain the 22 documented boundaries with their individual reasons. This supersedes the earlier decision to defer malformed history JSON. No new command, flag, setting or public output field was added. The visible changes are valid JSON for malformed logs, cancellation after interrupted physical-root resolution and retention of Store packages with unknown manifest evidence.
+
+Open: no confirmed defect in this follow-up is left without a repair. The integrated macOS suite passed; exact-head CI results are verified separately at task closeout. Package and physical-machine acceptance remain separate.
+
+## 2026-10-26 Whole dual CLI safety review
+
+- Initial complete-tree sources: main `ec968fc8` (production identical to `00f8279e`) and windows `8bff8583`. Incremental windows were `70eed1b0..ec968fc8` and `e5257672..8bff8583`; complete scope was not limited to them. Concurrent main commits `0f9c0df4`, `4f9abf8b` and `c8fe24f1` were preserved, reviewed and included in final integration; `502b3483` only updates contributors.
+- Scope: both complete CLIs, safety/correctness, performance/lifecycle and stale rules/docs, plus four adversarial passes. Both desktop apps, releases, real vendor uninstall and privileged cleanup are outside this task. The [macOS audit](../SECURITY_AUDIT.md) and [Windows audit](https://github.com/tw93/Mole/blob/windows/SECURITY_AUDIT.md) own module matrices and residual risks.
+- Merged PR inventory from 2026-10-24: six IDs, #1833, #1835, #1838, #1840, #1842 and #1852. The older same-day items precede the recorded repair baseline; #1852 is included in `00f8279e`. This is a review inventory, not authorization to reply or close threads.
+- Source repairs: `541690b5` (Analyze) and `16f5c5d7` (developer cleanup), plus Windows `34f646c2`; Windows review record `d1e199c0`.
+- Next window from: main `16f5c5d7`, windows `d1e199c0`.
+
+### Queue disposition
+
+| Item | Result | Evidence |
+| --- | --- | --- |
+| Analyze hidden input during deletion | Fixed | Busy mode refuses navigation and confirmation while preserving quit and the existing refresh path. Old input assertions failed; `lifecycle_test.go` and refresh/delete interleavings pass. |
+| Protected runtime moved through its parent | Fixed | Docker/OrbStack existing roots protect their parents and aliases. Darwin user/cache structural roots preserve EDR state. Six parent/alias, five structural and one linked-runtime physical-parent assertion failed before repair; empty-container and normal-cache controls pass. |
+| Owner-cache physical whitelist bypass | Fixed | Both configured and physical roots are checked, including linked ancestors, absent leaves and all Conda package roots. Four production producer fixtures use mocked owner mutation, with ordinary and allowed-link controls; signals propagate. Ten helper call sites were inspected, eight real owners inherit the new guard and two placeholder calls retain their separate contracts. |
+| Jupyter runtime cleanup | Fixed | Remove the Python producer and protect the runtime root/children at the shared clean sink; explicit uninstall remains separate. Producer/sink red-green fixtures and ordinary-cache controls pass. |
+| Windows post-owner identity gap | Fixed | `34f646c2` checks the original snapshot after the final callback, for both preview and removal. Three old-source cases fail; final dual-host Pester runs each pass 681 tests. Three sibling removal helpers were checked, one changed and two already had this boundary. |
+| Review claims and stale delivery rows | Updated | Correct the shared-helper, attestation, log encoding, Slim and non-atomic guarantees. Existing Windows vendor-wait/Adobe rows now agree with V1.39.0-windows ancestry and the dated package receipt; artifacts were not downloaded again. |
+| Asynchronous test teardown | Fixed in test | The valid live-scan fixture waits for its background cache publication before removing HOME. The observed race failure is recorded, and 100 focused race repetitions plus the full race package pass. No production synchronization layer was added. |
+
+### Verification and evidence boundaries
+
+The first isolated complete macOS `scripts/test.sh` run exited 0 with `All tests passed!`. Final integrated suite: passed with exit 0 and the runner's `All tests passed!` summary; the final linked-runtime Go follow-up was then checked with the full Go/race/build/lint gates. Formatting, `check.sh --no-format`, native build, Go and race tests pass. Windows native PowerShell 5.1.26100.9711 and 7.6.7, Pester 6.2.0: 681 passed, zero failures/skips on each engine. All 58 scripts parse under both engines; all three ARM64 Go test packages pass natively, and Windows x64/ARM64 builds plus ARM64 vet pass. The Windows Go runner's initial SYSTEM temporary-root refusals were corrected by isolating `SystemTemp`, without weakening product checks. Exact-commit CI is checked separately from source tests and recorded in the final task result.
+
+Eight isolated launcher fixtures cover Steam, Epic, GOG, Battle.net, Parallels, UTM, Ollama and LM Studio. Their exact cache leaves remain automatic, personal state remains default-kept, and shared Steam/Epic roots are excluded. This does not establish real-installed-app or custom-library acceptance. The two-CLI comparison found existing Windows busy, protected-descendant and owner-root guards; no Windows Jupyter runtime producer exists. No macOS-only path was copied into Windows.
+
+Test-isolation correction: two initial Jupyter red runs actually invoked `pip3 cache purge` and `uv cache prune`, because an external timeout process did not inherit shell-function mocks. HOME was disposable, and subsequent read-only root queries in the same layout stayed inside it, but original owner output/effective roots were not captured. External-cache impact cannot be ruled out or quantified. The timeout dispatcher is now mocked and all subsequent runs use that corrected fixture. This is not described as entirely mocked verification.
+
+### Decided, do not re-report
+
+- Keep path-based final checks and document their remaining non-atomic window; owner internal locking and configuration rereads are not proven by Mole's preflight.
+- Keep the existing attestation availability policy and unpinned installer URL. A generic moving-URL signal is not a new integrity regression; the actual checksum/mismatch abort path remains enforced.
+- Superseded by the residual-closure follow-up above: malformed UTF-8 is repaired in rendered JSON, while stored log bytes remain unchanged. The original reproduction was not a deletion incident.
+- Generic audit signals about hotspot sizes, Windows test discovery and packaging are not verified defects: the scanner omits PowerShell from its source inventory, while real Pester/install gates exist. Do not split the deliberately large safety hotspots based on line count.
+- No new quantitative performance improvement is claimed. Mounted-volume overview cache identity remains path-based and kernel filesystem calls are not all interruptible; neither observation authorizes a new deletion path.
+
+Open: no unrepaired reproduced safety finding remains in this review. Package/release delivery, real-application acceptance and the stated architectural limitations remain separate; this task does not publish a version.
+
 ## 2026-10-24 Dual CLI release review and cancellation repairs
 
 - Release baselines: `V1.62.0` and `V1.37.0-windows`. Frozen repair source: main `1c244a2a`, windows `e5257672`; the macOS checkout was fast-forwarded over its contributors-only update before editing.

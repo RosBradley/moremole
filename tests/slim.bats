@@ -69,6 +69,48 @@ run_slim_selector() {
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
+assert_slim_whitelist_change() {
+	[[ "$SLIM_HAVE_FAT_TOOLCHAIN" == "1" ]] || skip "needs clang and a developer directory"
+	local app phase="$1"
+	app=$(make_fixture_app)
+	mole_test_fake_command spctl 'exit 0'
+	run slim_env HOME="$BATS_TEST_TMPDIR/home-$phase" MOLE_SLIM_TEST_HOST_ARM64=1 /bin/bash -c '
+		source "$1"
+		slim_signing_team() { echo ABCDE12345; }
+		slim_preflight || exit 9
+		collect_slim_candidates || exit 8
+		mkdir -p "$HOME/.config/mole"
+		if [[ "$3" == before ]]; then
+			printf "%s\n" "$2" > "$HOME/.config/mole/whitelist"
+			ditto() { echo COPIED; return 1; }
+		else
+			protected_app="$2"
+			phase="$3"
+			slim_verify_copy() {
+				echo VERIFIED >&2
+				if [[ "$phase" == unavailable ]]; then
+					mkdir "$HOME/.config/mole/whitelist"
+				else
+					printf "%s\n" "$protected_app" > "$HOME/.config/mole/whitelist"
+				fi
+			}
+		fi
+		mole_delete() { echo DELETED; return 1; }
+		slim_one_app 0 || exit 7
+		echo "slimmed=$total_slimmed reason=${SLIM_FAILED_REASONS[*]}"
+	' bash "$PROJECT_ROOT/bin/slim.sh" "$app" "$phase"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" != *DELETED* && "$output" != *COPIED* ]] || { echo "$output"; return 1; }
+	if [[ "$phase" == unavailable ]]; then
+		[[ "$output" == *"slimmed=0 reason=whitelist unavailable"* ]] || { echo "$output"; return 1; }
+	else
+		[[ "$output" == *"slimmed=0 reason=whitelisted"* ]] || { echo "$output"; return 1; }
+	fi
+	[[ "$phase" == before || "$output" == *VERIFIED* ]] || return 1
+	[[ "$(lipo -archs "$app/Contents/MacOS/Fixture")" == *x86_64* ]] || return 1
+	[ -z "$(ls -A "$TRASH_DIR")" ]
+}
+
 @test "slim rows fit narrow terminals and keep short lists compact" {
 	run slim_env /bin/bash -c '
 		source "$1"
@@ -137,6 +179,61 @@ slim_env() {
 	env HOME="$HOME" PATH="$PATH" MO_NO_OPLOG=1 MOLE_TEST_MODE=1 \
 		MOLE_TEST_TRASH_DIR="$TRASH_DIR" MOLE_SLIM_TEST_APP_ROOTS="$APPS_ROOT" \
 		MOLE_DELETE_LOG="$BATS_TEST_TMPDIR/deletions.log" "$@"
+}
+
+
+@test "slim excludes whitelist paths from dry-run and noninteractive scans" {
+	[[ "$SLIM_HAVE_FAT_TOOLCHAIN" == "1" ]] || skip "needs clang and a developer directory"
+	local app
+	app=$(make_fixture_app)
+	cp -R "$app" "$APPS_ROOT/Keep.app"
+	mole_test_fake_command spctl 'exit 0'
+	run slim_env HOME="$BATS_TEST_TMPDIR/home" MOLE_SLIM_TEST_HOST_ARM64=1 /bin/bash -c '
+		source "$1"
+		slim_signing_team() { echo ABCDE12345; }
+		mkdir -p "$HOME/.config/mole"
+		for mode in --dry-run --debug; do
+			for pattern in "$2" "$2/Contents/MacOS/Fixture" "${2%/*}/Fi*.app"; do
+				printf "%s" "$pattern" > "$HOME/.config/mole/whitelist"
+				main "$mode" || exit 1
+				[[ "${SLIM_APP_NAMES[*]}" == Keep ]] || { echo "listed=${SLIM_APP_NAMES[*]}"; exit 2; }
+				unset MOLE_DRY_RUN
+			done
+		done
+		printf "%s\n" "${2%/*}" > "$HOME/.config/mole/whitelist"
+		main --dry-run || exit 3
+		[[ ${#SLIM_APP_PATHS[@]} -eq 0 ]] || exit 4
+		echo WHITELIST_OK
+	' bash "$PROJECT_ROOT/bin/slim.sh" "$app"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *WHITELIST_OK* ]] || return 1
+	[[ "$(lipo -archs "$app/Contents/MacOS/Fixture")" == *x86_64* ]] || return 1
+	[ -z "$(ls -A "$TRASH_DIR")" ]
+}
+
+@test "slim stops before scanning when its whitelist is unreadable" {
+	run slim_env HOME="$BATS_TEST_TMPDIR/home" MOLE_SLIM_TEST_HOST_ARM64=1 /bin/bash -c '
+		source "$1"
+		mkdir -p "$HOME/.config/mole/whitelist"
+		collect_slim_candidates() { echo SCANNED; return 1; }
+		main --dry-run
+	' bash "$PROJECT_ROOT/bin/slim.sh"
+	[ "$status" -ne 0 ] || { echo "$output"; return 1; }
+	[[ "$output" != *SCANNED* ]] || return 1
+	[[ "$output" == *whitelist* ]]
+}
+
+
+@test "slim reloads whitelist changes after scan" {
+	assert_slim_whitelist_change before
+}
+
+@test "slim reloads whitelist changes before swap" {
+	assert_slim_whitelist_change after
+}
+
+@test "slim retains the original when whitelist becomes unreadable before swap" {
+	assert_slim_whitelist_change unavailable
 }
 
 @test "slim scans one level of plain folders but not bundles, links or deeper folders (#1811)" {

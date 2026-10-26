@@ -392,11 +392,12 @@ should_protect_path() {
     local path="$1"
     [[ -z "$path" ]] && return 1
 
-    # Local database state and recovery copies are not rebuildable caches.
+    # Local database/session state and recovery copies are not rebuildable caches.
     # Explicit uninstall retains its separate reviewed-data policy.
     if [[ "${MOLE_UNINSTALL_MODE:-0}" != "1" ]]; then
         case "$path" in
             "$HOME/.prometheus/data" | "$HOME/.prometheus/data/"* | \
+                "$HOME/.jupyter/runtime" | "$HOME/.jupyter/runtime/"* | \
                 "$HOME/.gitconfig.lock" | "$HOME/.gitconfig.bak"* | \
                 "$HOME/.config/fish/fish_history.bak"* | \
                 "$HOME/.bash_history.bak"* | "$HOME/.zsh_history.bak"*)

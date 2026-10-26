@@ -231,7 +231,7 @@ load_whitelist() {
     fi
 
     if [[ $config_state -eq 0 ]]; then
-        while IFS= read -r line; do
+        while IFS= read -r line || [[ -n "$line" ]]; do
             # shellcheck disable=SC2295
             line="${line#"${line%%[![:space:]]*}"}"
             # shellcheck disable=SC2295

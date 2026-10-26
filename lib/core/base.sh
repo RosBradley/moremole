@@ -212,6 +212,10 @@ declare -a SAFETY_WHITELIST_PATTERNS=(
     "$HOME/Library/Caches/com.apple.spotlight*"
     "$HOME/Library/Caches/com.apple.Spotlight*"
     "$HOME/Library/Caches/CloudKit*"
+    # Kitty keeps a live graphics-protocol cache here; removing it from a
+    # running session makes subsequent image transfers fail until the
+    # directory is recreated.
+    "$HOME/Library/Caches/kitty"
     "$HOME/Library/Caches/pypoetry/virtualenvs*"
     "$HOME/Library/Caches/org.R-project.R/R/renv/*"
 )
@@ -471,7 +475,7 @@ load_mole_whitelist() {
     [[ $whitelist_state -ne 2 ]] || return 1
     if [[ $whitelist_state -eq 0 ]]; then
         local line duplicate existing
-        while IFS= read -r line; do
+        while IFS= read -r line || [[ -n "$line" ]]; do
             # shellcheck disable=SC2295
             line="${line#"${line%%[![:space:]]*}"}"
             # shellcheck disable=SC2295

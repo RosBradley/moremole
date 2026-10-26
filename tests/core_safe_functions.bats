@@ -191,6 +191,8 @@ if [[ "$HELPER" == sudo ]]; then
                 ;;
             xargs)
                 printf 'BATCH\n' >> "$TARGET_DIR/trace"
+                # Consume the producer's pipe before returning, like xargs.
+                cat > /dev/null
                 # Acknowledge the mocked batch without executing its command.
                 printf '%s\0%s\0' "$TARGET_DIR/first.log" "$TARGET_DIR/last.log"
                 ;;
@@ -208,6 +210,8 @@ printf 'RC=%s STICKY=%s\n' "$rc" "${MOLE_CLEAN_CANCEL_STATUS:-0}"
 cat "$TARGET_DIR/trace"
 printf 'NO_AUTH=%s\n' "$MOLE_TEST_NO_AUTH"
 SCRIPT
+    printf 'find/delete case %s/%s/%s/%s, exit %s\n%s\n' \
+        "$helper" "$stage" "$probe_rc" "$dry_run" "$status" "$output"
     [ "$status" -eq 0 ] || return 1
     [[ "$output" == *"NO_AUTH=1"* ]] || return 1
     [[ "$output" != *"UNEXPECTED_SUDO"* ]] || return 1
@@ -340,8 +344,10 @@ SCRIPT
     run /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion '$TEST_DIR/valid'"
     [ "$status" -eq 0 ]
 
-    run /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion '$HOME/Library/Caches/com.example.app/cache.db'"
-    [ "$status" -eq 0 ]
+    # Sibling test processes can mention this synthetic owner in their argv.
+    # This path-policy case supplies an idle process table instead of using it.
+    run /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; ps() { printf '%s\n' 'PID PPID COMM ARGS'; }; validate_path_for_deletion '$HOME/Library/Caches/com.example.app/cache.db'"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
 @test "validate_path_for_deletion allows protected input-method names in Trash (#1517)" {
@@ -3032,7 +3038,12 @@ sudo() {
             printf '%s\0' "$TARGET_DIR/a.log" "$TARGET_DIR/b.log"
             ;;
         xargs)
+            cat > /dev/null
+            printf 'batch failure\n' > "$TARGET_DIR/batch.failed"
             return 1
+            ;;
+        "$STAT_BSD")
+            "$@"
             ;;
         *)
             return 1
@@ -3058,6 +3069,7 @@ SCRIPT
     [ "$status" -eq 0 ]
     [[ "$output" == *"RC=1"* ]] || return 1
     [[ "$output" == *"A_SURVIVED"* ]] || return 1
+    [ -s "$target_dir/batch.failed" ] || return 1
     # Scope to this test's paths: the oplog HOME is shared across tests and
     # earlier batch tests legitimately log their own "(batch)" lines.
     [[ "$output" != *"REMOVED $target_dir/a.log (batch)"* ]] || return 1
@@ -3171,6 +3183,7 @@ sudo() {
             ;;
         xargs)
             # Simulate a batch failure without deleting anything.
+            cat > /dev/null
             return 1
             ;;
         du)

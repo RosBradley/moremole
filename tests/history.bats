@@ -316,6 +316,66 @@ assert data["deletions"][0]["path"] == "/tmp/unicode-\u96ea-quote\"slash\\tab\tb
 '
 }
 
+@test "history JSON replaces malformed UTF-8 while preserving valid scalar values" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 python3 - <<'PYTEST'
+import json
+import os
+import random
+import subprocess
+
+cases = [(bytes([c]), chr(c) if c < 128 else "\ufffd") for c in range(1, 256)]
+for point in (0x80, 0x85, 0x7ff, 0x800, 0x2028, 0x2029, 0xd7ff, 0xe000, 0xfeff, 0xffff, 0x10000, 0x10ffff):
+    value = chr(point)
+    cases.append((value.encode(), value))
+for value in ("plain", "雪🙂", 'quote"slash\\\t\r\n'):
+    cases.append((value.encode(), value))
+for malformed in (b"\xc0\x80", b"\xe0\x80\x80", b"\xed\xa0\x80", b"\xf0\x80\x80\x80",
+                  b"\xf4\x90\x80\x80", b"\xf5\x80\x80\x80", b"\xe2\x82", b"\xf0\x9f\x92"):
+    cases.append((malformed, "\ufffd" * len(malformed)))
+cases += [(b"\xe2(\xa1", "\ufffd(\ufffd"), (b"\xe2\xc2\xa2", "\ufffd¢")]
+rng = random.Random(20261026)
+for _ in range(250):
+    raw = bytes(rng.randrange(1, 256) for _ in range(rng.randrange(1, 13)))
+    decoded = raw.decode("utf-8", errors="surrogateescape")
+    expected = "".join("\ufffd" if 0xdc80 <= ord(c) <= 0xdcff else c for c in decoded)
+    cases.append((raw, expected))
+script = b'source "$1/lib/core/history.sh"; shift; for value; do history_json_string "$value"; printf "\\n"; done'
+result = subprocess.run([b"/bin/bash", b"--noprofile", b"--norc", b"-c", script, b"history-test",
+                         os.fsencode(os.environ["PROJECT_ROOT"]), *[v for v, _ in cases]],
+                        capture_output=True, check=True, env=dict(os.environ, LC_ALL="C"))
+rows = result.stdout.decode("utf-8").split("\n")[:-1]
+assert len(rows) == len(cases), (len(rows), len(cases))
+for row, (raw, expected) in zip(rows, cases):
+    assert json.loads(row) == expected, (raw, row, expected)
+PYTEST
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "mo history JSON repairs malformed legacy fields without rewriting logs" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 python3 - <<'PYTEST'
+import json
+import os
+from pathlib import Path
+import subprocess
+
+log_dir = Path(os.environ["HOME"]) / "Library/Logs/mole"
+operations = (b"# ========== cl\xffean session started at 2026-05-24 10:00:00 ==========\n"
+              b"[2026-05-24 10:00:01] [cl\xffean] SKIPPED /kept (whitelist)\n")
+deletions = (b"2026-05-24T10:00:02+0000\ttrash\t4\tok\t/tmp/bad\xff-\xed\xa0\x80-"
+             + "雪🙂".encode() + b"\n")
+(log_dir / "operations.log").write_bytes(operations)
+(log_dir / "deletions.log").write_bytes(deletions)
+result = subprocess.run([os.environ["PROJECT_ROOT"] + "/mole", "history", "--json"],
+                        capture_output=True, check=True, env=dict(os.environ, LC_ALL="C"))
+data = json.loads(result.stdout.decode("utf-8"))
+assert data["sessions"][0]["command"] == "cl\ufffdean", data
+assert data["deletions"][0]["path"] == "/tmp/bad\ufffd-\ufffd\ufffd\ufffd-雪🙂", data
+assert (log_dir / "operations.log").read_bytes() == operations
+assert (log_dir / "deletions.log").read_bytes() == deletions
+PYTEST
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
 @test "mo history --limit caps sessions and deletion entries" {
     write_history_logs
 
