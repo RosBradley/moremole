@@ -33,13 +33,15 @@ readonly MOREMOLE_BUILTIN_ROWS=(
     "Software removal|mole|uninstall|Remove apps completely;Preview|mole|uninstall --dry-run|Show what Software removal would remove, without removing anything"
     "AI models|mole|moremole-models|Check Ollama models for updates and install them;Preview|mole|moremole-models --dry-run|List Ollama models and their updates, without changing anything;Download|mole|moremole-models --download|Download models from Ollama's library"
     "AI model removal|mole|moremole-models --remove|Remove Ollama models;Preview|mole|moremole-models --remove --dry-run|List Ollama models and their sizes, without removing anything"
-    "Update MoreMole|update||Get the latest MoreMole and Mole changes, and rebuild if needed"
+    "Update MoreMole|update||Get the newest MoreMole, with Mole's latest changes"
 )
 readonly MOREMOLE_SECTION_LABEL="My commands"
 readonly MOREMOLE_ADD_LABEL="Add a command"
 readonly MOREMOLE_ADD_DESC="Add your own command to this menu"
 readonly MOREMOLE_MENU_COLUMNS=3
 readonly MOREMOLE_REPO_URL="github.com/RosBradley/moremole"
+readonly MOREMOLE_INSTALL_LINE="curl -fsSL https://raw.githubusercontent.com/RosBradley/moremole/moremole/moremole-get.sh | bash"
+readonly MOREMOLE_RELEASE_RE='^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$'
 # Two short lines, so the banner stays within 80 columns: Mole's own line,
 # then what MoreMole adds.
 readonly MOREMOLE_TAGLINE=("Deep clean and optimize your Mac." "Manage, update and remove apps.")
@@ -799,10 +801,88 @@ show_help() {
 }
 
 # Update notices say "run moremole update", which runs the moremole update.
+# A copy from the installer shows only MoreMole's own notices, and not one
+# for the release installed here or an older one; a git folder shows Mole's.
 read_update_message_cache() {
-    local message
+    local message installed offered
     message="$(_moremole_official_read_update_message_cache "$@")"
+    installed="$(_moremole_release_version)" || installed=""
+    if [[ "$message" =~ ^MoreMole\ ([0-9.]+)\ available ]]; then
+        offered="${BASH_REMATCH[1]}"
+        if [[ -z "$installed" || "$(printf '%s\n' "$offered" "$installed" | sort -V | tail -n 1)" == "$installed" ]]; then
+            message=""
+        fi
+    elif [[ -n "$installed" ]]; then
+        message=""
+    fi
     printf '%s' "${message//run mo update/run moremole update}"
+}
+
+# The MoreMole release installed here, from the .moremole-release file the
+# installer's download carries. A git folder has none.
+_moremole_release_version() {
+    local line version=""
+    [[ -f "$SCRIPT_DIR/.moremole-release" ]] || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == version=* ]] && version="${line#version=}"
+    done < "$SCRIPT_DIR/.moremole-release" 2> /dev/null
+    [[ "$version" =~ $MOREMOLE_RELEASE_RE ]] || return 1
+    printf '%s' "$version"
+}
+
+# The newest MoreMole release, from where GitHub's "latest release" link
+# leads; nothing when GitHub can't be reached.
+_moremole_latest_release() {
+    local location version
+    location="$(curl -fsSLI --proto '=https' --connect-timeout 5 --max-time 15 -o /dev/null \
+        -w '%{url_effective}' "https://$MOREMOLE_REPO_URL/releases/latest" 2> /dev/null || true)"
+    case "$location" in
+        */releases/tag/moremole-*) version="${location##*/releases/tag/moremole-}" ;;
+        *) return 0 ;;
+    esac
+    [[ "$version" =~ $MOREMOLE_RELEASE_RE ]] && printf '%s\n' "$version"
+    return 0
+}
+
+if declare -F check_for_updates > /dev/null; then
+    eval "$(declare -f check_for_updates | sed '1s/^check_for_updates /_moremole_official_check_for_updates /')"
+fi
+
+# A git folder keeps Mole's check, which says when Mole has a new release to
+# bring in. A copy installed by the installer asks MoreMole's own releases
+# instead, in the background, once a day (after an hour when GitHub couldn't
+# be reached): Mole's releases reach it only through a MoreMole release.
+# Other copies can't update themselves, so they get no notice.
+check_for_updates() {
+    if _moremole_is_git_folder || _moremole_mole_updater_for_tests; then
+        _moremole_official_check_for_updates
+        return 0
+    fi
+    local installed
+    installed="$(_moremole_release_version)" || return 0
+    local cache_dir="$HOME/.cache/mole" stamp now checked=0 interval=0
+    ensure_user_dir "$cache_dir" || return 0
+    stamp="$cache_dir/moremole_release_check"
+    now="$(date +%s)"
+    { read -r checked interval < "$stamp"; } 2> /dev/null || true
+    if [[ "$checked" =~ ^[0-9]{1,12}$ && "$interval" =~ ^(3600|86400)$ ]] &&
+        ((now >= 10#$checked && now - 10#$checked < interval)); then
+        return 0
+    fi
+    _mole_write_update_cache "$stamp" "$now 3600"$'\n' || return 0
+    (
+        (
+            local latest message=""
+            latest="$(_moremole_latest_release)"
+            [[ -n "$latest" ]] || exit 0
+            if [[ "$latest" != "$installed" && "$(printf '%s\n' "$installed" "$latest" | sort -V | tail -n 1)" == "$latest" ]]; then
+                message="MoreMole $latest available, run moremole update"
+            fi
+            _mole_write_update_cache "$cache_dir/update_message" "$message" || exit 0
+            _mole_write_update_cache "$stamp" "$now 86400"$'\n' || true
+        ) > /dev/null 2>&1 < /dev/null &
+    )
+    return 0
 }
 
 # Mole's own version screen, kept so its system details stay current.
@@ -811,12 +891,14 @@ if declare -F show_version > /dev/null; then
 fi
 
 # The version screen names MoreMole, credits Mole and its author, and says
-# which moremole commit is running. The version line keeps the form
-# "... Mole version X.Y.Z" that Mole's own scripts read the number from.
+# which MoreMole release or commit is running. The version line keeps the
+# form "... Mole version X.Y.Z" that Mole's own scripts read the number from.
 show_version() {
-    local commit="" line
+    local commit="" line release
     if _moremole_is_git_folder; then
         commit="$(git -C "$SCRIPT_DIR" log -1 --format='%h, %cd' --date=short 2> /dev/null)" || commit=""
+    elif release="$(_moremole_release_version)"; then
+        commit="release $release"
     fi
     _moremole_official_show_version | while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$line" == "Mole version "* ]]; then
@@ -829,11 +911,6 @@ show_version() {
     done
 }
 
-# Mole's own updater, kept for copies that are not the moremole git folder.
-if declare -F update_mole > /dev/null; then
-    eval "$(declare -f update_mole | sed '1s/^update_mole /_moremole_official_update_mole /')"
-fi
-
 # Whether this copy runs from the root of a git folder holding the sync script.
 _moremole_is_git_folder() {
     local toplevel="" here=""
@@ -843,16 +920,51 @@ _moremole_is_git_folder() {
     [[ -n "$toplevel" && "$(cd "$toplevel" && pwd -P)" == "$here" ]]
 }
 
-# In the moremole git folder, installing the official release would erase
-# moremole's changes, so update brings in Mole's latest changes with the sync
-# script instead, which keeps them. Other copies update the way Mole does.
+# Mole's own updater and update check, kept only for Mole's tests of them:
+# tests/update.bats sets MOREMOLE_TEST_MOLE_UPDATER so they keep testing
+# Mole's code. For anyone using MoreMole they never run.
+if declare -F update_mole > /dev/null; then
+    eval "$(declare -f update_mole | sed '1s/^update_mole /_moremole_official_update_mole /')"
+fi
+
+_moremole_mole_updater_for_tests() {
+    [[ "${MOREMOLE_TEST_MOLE_UPDATER:-0}" == "1" ]]
+}
+
+# Mole's own updater would install the official Mole over MoreMole, so it
+# never runs here. A copy from the installer installs the newest MoreMole
+# release. The maintainer's git folder (with Mole as its "upstream" remote)
+# brings in Mole's latest changes with the sync script, which keeps
+# MoreMole's. Another git copy updates with git, and says how.
 update_mole() {
-    if ! _moremole_is_git_folder; then
+    if _moremole_mole_updater_for_tests; then
         _moremole_official_update_mole "$@"
         return
     fi
-    if [[ "${1:-false}" == "true" || "${2:-false}" == "true" ]]; then
-        printf 'moremole updates by bringing in Mole'"'"'s latest changes; --force and --nightly are not used.\n\n'
+    local flags_note=false release
+    [[ "${1:-false}" != "true" && "${2:-false}" != "true" ]] || flags_note=true
+    if _moremole_is_git_folder; then
+        if ! git -C "$SCRIPT_DIR" remote get-url upstream > /dev/null 2>&1; then
+            printf 'This is a git copy of MoreMole. To update it, run these in %s:\n  git pull\n  make build\n' "$SCRIPT_DIR"
+            return 1
+        fi
+        [[ "$flags_note" != "true" ]] ||
+            printf 'MoreMole updates by bringing in Mole'"'"'s latest changes; --force and --nightly are not used.\n\n'
+        /bin/bash "$SCRIPT_DIR/scripts/moremole-sync.sh"
+        return
     fi
-    /bin/bash "$SCRIPT_DIR/scripts/moremole-sync.sh"
+    if release="$(_moremole_release_version)"; then
+        [[ "$flags_note" != "true" ]] ||
+            printf 'MoreMole updates to its newest release; --force and --nightly are not used.\n\n'
+        local rc=0 now
+        /bin/bash "$SCRIPT_DIR/moremole-get.sh" --update || rc=$?
+        now="$(_moremole_release_version)" || now=""
+        if [[ $rc -eq 0 && -n "$now" && "$now" != "$release" ]]; then
+            log_operation "update" "REBUILT" "$SCRIPT_DIR" "MoreMole $release -> $now" || true
+        fi
+        return "$rc"
+    fi
+    printf 'This copy of MoreMole wasn'"'"'t installed by its installer, so it can'"'"'t update itself.\n'
+    printf 'Install MoreMole with:\n  %s\n' "$MOREMOLE_INSTALL_LINE"
+    return 1
 }

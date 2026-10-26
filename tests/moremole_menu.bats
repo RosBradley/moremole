@@ -507,11 +507,12 @@ grep -Eq "$MOLE_COMPLETION_LINE_PATTERN" <<< "if output=\"\$(moremole completion
 	[ "$status" -eq 0 ]
 }
 
-@test "update_mole runs the moremole sync script instead of installing Mole" {
+@test "update_mole runs the moremole sync script in the maintainer's git folder" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
 SCRIPT_DIR="$HOME/fork"
 mkdir -p "$SCRIPT_DIR/scripts"
 git init -q "$SCRIPT_DIR"
+git -C "$SCRIPT_DIR" remote add upstream https://github.com/tw93/Mole.git
 printf "echo SYNC_RAN\n" > "$SCRIPT_DIR/scripts/moremole-sync.sh"
 update_mole true false
 '
@@ -520,18 +521,19 @@ update_mole true false
 	[[ "$output" == *"SYNC_RAN"* ]]
 }
 
-@test "update_mole keeps Mole's own updater outside a moremole git folder" {
+@test "Mole's own updater runs only for Mole's tests of it, never to install Mole over MoreMole" {
 	run /bin/bash --noprofile --norc -c "$(prelude)"'
-SCRIPT_DIR="$HOME/not-a-repo"
-mkdir -p "$SCRIPT_DIR/scripts"
-printf "echo SYNC_RAN\n" > "$SCRIPT_DIR/scripts/moremole-sync.sh"
 declare -f _moremole_official_update_mole | grep -q "UPDATE_LOCK_CONTROL" || exit 1
 _moremole_official_update_mole() { echo "OFFICIAL_UPDATE $*"; }
-update_mole true false
+SCRIPT_DIR="$HOME/not-a-repo"
+mkdir -p "$SCRIPT_DIR"
+update_mole true false || echo "refused rc=$?"
+MOREMOLE_TEST_MOLE_UPDATER=1 update_mole true false
 '
 	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
-	[[ "$output" == *"OFFICIAL_UPDATE true false"* ]] || return 1
-	[[ "$output" != *"SYNC_RAN"* ]]
+	[[ "$output" == *"can't update itself"*"refused rc=1"* ]] || return 1
+	[ "$(grep -c "OFFICIAL_UPDATE" <<< "$output")" -eq 1 ] || return 1
+	[[ "$output" == *"OFFICIAL_UPDATE true false"* ]]
 }
 
 @test "on the menu's own screen, clearing keeps the terminal's scrollback" {

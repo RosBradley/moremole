@@ -76,6 +76,8 @@ bin/status-go
 bin/moremole-updates-go
 bin/moremole-models-go
 bin/moremole-view-go
+# MoreMole: names the release in a download from the installer
+.moremole-release
 bin/analyze-darwin-*
 bin/status-darwin-*
 
