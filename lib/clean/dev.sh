@@ -2,6 +2,29 @@
 # Developer Tools Cleanup Module
 set -euo pipefail
 
+# Owner commands follow configured roots, so lexical policy alone cannot
+# protect a cache reached through a directory alias. Resolve the existing
+# prefix even when the owner has not created the final cache directory yet.
+owner_cache_root_is_safe() {
+    local cache_root="${1%/}"
+    validate_path_for_deletion "$cache_root" > /dev/null 2>&1 || return $?
+    is_path_whitelisted "$cache_root" && return 1
+
+    local existing="$cache_root" suffix="" physical_root=""
+    while [[ ! -e "$existing" ]]; do
+        [[ ! -L "$existing" && "$existing" != / && -n "$existing" ]] || return 1
+        suffix="/${existing##*/}$suffix"
+        existing="${existing%/*}"
+        [[ -n "$existing" ]] || existing=/
+    done
+    [[ -d "$existing" ]] || return 1
+    physical_root=$(cd -P "$existing" 2> /dev/null && pwd -P) || return $?
+    physical_root="${physical_root%/}$suffix"
+    validate_path_for_deletion "$physical_root" > /dev/null 2>&1 || return $?
+    is_path_whitelisted "$physical_root" && return 1
+    return 0
+}
+
 # Tool cache helper (respects DRY_RUN and whitelist).
 # Args:
 #   $1 = description (display name)
@@ -29,6 +52,17 @@ clean_tool_cache() {
         fi
         log_operation "${MOLE_CURRENT_COMMAND:-clean}" "SKIPPED" "$cache_path" "whitelist"
         return 0
+    fi
+
+    if [[ -n "$cache_path" && "${1:-}" != ":" ]]; then
+        local root_rc=0
+        owner_cache_root_is_safe "$cache_path" || root_rc=$?
+        mole_rc_signal "$root_rc" && return "$root_rc"
+        if [[ $root_rc -ne 0 ]]; then
+            debug_log "$description kept: cache root is protected or unresolved"
+            log_operation "${MOLE_CURRENT_COMMAND:-clean}" "SKIPPED" "$cache_path" "protected or unresolved cache root"
+            return 0
+        fi
     fi
 
     if [[ "$DRY_RUN" != "true" ]]; then
@@ -319,6 +353,12 @@ clean_conda_metadata_caches() {
             conda_pkg_roots+=("$root")
         done
         conda_cache_whitelisted "${conda_pkg_roots[@]}" && return 0
+        for root in "${conda_pkg_roots[@]}"; do
+            local root_rc=0
+            owner_cache_root_is_safe "$root" || root_rc=$?
+            mole_rc_signal "$root_rc" && return "$root_rc"
+            [[ $root_rc -eq 0 ]] || return 0
+        done
         clean_tool_cache "conda index/tarball/log caches" "${conda_pkg_roots[0]}" \
             run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" conda clean --yes --index-cache --tarballs --logfiles || return $?
         return 0
@@ -868,7 +908,7 @@ clean_dev_python() {
     safe_clean ~/.cache/mypy/* "MyPy cache"
     safe_clean ~/.pytest_cache/* "Pytest cache"
     clean_pyinstaller_bincache
-    safe_clean ~/.jupyter/runtime/* "Jupyter runtime cache"
+    # Jupyter runtime files hold active kernel/server connections, not caches.
     # Hugging Face, PyTorch, TensorFlow and Weights & Biases keep downloaded
     # model weights, datasets and run artifacts here. Their roots are not
     # blanket caches: Hugging Face's own prune warns that interruption can

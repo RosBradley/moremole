@@ -591,7 +591,7 @@ history_size_label() {
 history_json_escape() {
     local value="${1:-}"
     local LC_ALL=C
-    local char code idx
+    local char code idx width offset byte second_min second_max
 
     idx=0
     while [[ "$idx" -lt "${#value}" ]]; do
@@ -611,8 +611,43 @@ history_json_escape() {
                 fi
                 if [[ "$code" -lt 32 ]]; then
                     printf '\\u%04x' "$code"
-                else
+                elif [[ "$code" -lt 128 ]]; then
                     printf '%s' "$char"
+                else
+                    # Bash holds filename bytes, but JSON strings require UTF-8.
+                    # Keep canonical scalar sequences; replace each invalid byte.
+                    width=0
+                    second_min=128
+                    second_max=191
+                    if [[ "$code" -ge 194 && "$code" -le 223 ]]; then
+                        width=2
+                    elif [[ "$code" -ge 224 && "$code" -le 239 ]]; then
+                        width=3
+                        [[ "$code" -ne 224 ]] || second_min=160
+                        [[ "$code" -ne 237 ]] || second_max=159
+                    elif [[ "$code" -ge 240 && "$code" -le 244 ]]; then
+                        width=4
+                        [[ "$code" -ne 240 ]] || second_min=144
+                        [[ "$code" -ne 244 ]] || second_max=143
+                    fi
+                    if [[ $((idx + width)) -gt "${#value}" ]]; then
+                        width=0
+                    fi
+                    for ((offset = 1; offset < width; offset++)); do
+                        printf -v byte '%d' "'${value:$((idx + offset)):1}"
+                        byte=$((byte & 255))
+                        if [[ "$byte" -lt 128 || "$byte" -gt 191 ]] ||
+                            { [[ "$offset" -eq 1 ]] && [[ "$byte" -lt "$second_min" || "$byte" -gt "$second_max" ]]; }; then
+                            width=0
+                            break
+                        fi
+                    done
+                    if [[ "$width" -gt 0 ]]; then
+                        printf '%s' "${value:$idx:$width}"
+                        idx=$((idx + width))
+                        continue
+                    fi
+                    printf '%s' '\ufffd'
                 fi
                 ;;
         esac

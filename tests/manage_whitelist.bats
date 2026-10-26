@@ -41,6 +41,29 @@ setup() {
     [ "$status" -ne 0 ]
 }
 
+@test "shared whitelist keeps the last protection without a trailing newline" {
+    mkdir -p "$HOME/.config/mole"
+    printf '%s' "$HOME/Applications/Protected.app" > "$WHITELIST_PATH"
+    run /bin/bash -c '
+        source "$1/lib/core/common.sh"
+        load_mole_whitelist "$HOME" || exit 1
+        is_path_whitelisted "$HOME/Applications/Protected.app"
+    ' bash "$PROJECT_ROOT"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "whitelist editor keeps the last protection without a trailing newline" {
+    mkdir -p "$HOME/.config/mole"
+    printf '%s' "$HOME/Applications/Protected.app" > "$WHITELIST_PATH"
+    run /bin/bash -c '
+        source "$1/lib/manage/whitelist.sh"
+        load_whitelist || exit 1
+        printf "%s\n" "${CURRENT_WHITELIST_PATTERNS[@]}"
+    ' bash "$PROJECT_ROOT"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"$HOME/Applications/Protected.app"* ]]
+}
+
 @test "save_whitelist_patterns keeps unique entries and preserves header" {
     HOME="$HOME" /bin/bash --noprofile --norc -c "source '$PROJECT_ROOT/lib/manage/whitelist.sh'; save_whitelist_patterns \"\$HOME/.cache/foo\" \"\$HOME/.cache/foo\" \"\$HOME/.cache/bar\""
 
@@ -513,13 +536,15 @@ EOF
     [ "$status" -eq 0 ]
 }
 
-@test "default whitelist protects tealdeer cache parent for tldr pages" {
+@test "default whitelist protects tealdeer and Kitty cache paths" {
     local status
     if HOME="$HOME" /bin/bash --noprofile --norc -c "
         source '$PROJECT_ROOT/lib/manage/whitelist.sh'
         rm -f \"\$HOME/.config/mole/whitelist\"
         load_whitelist
-        is_path_whitelisted \"\$HOME/Library/Caches/tealdeer\"
+        is_path_whitelisted \"\$HOME/Library/Caches/tealdeer\" &&
+            is_path_whitelisted \"\$HOME/Library/Caches/kitty\" &&
+            is_path_whitelisted \"\$HOME/Library/Caches/kitty/graphics-cache\"
     "; then
         status=0
     else

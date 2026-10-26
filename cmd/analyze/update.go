@@ -633,6 +633,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The busy view hides rows and confirmations. Keep its inputs from
+	// changing selection or dispatching another deletion without a visible prompt.
+	if m.deleting {
+		switch msg.String() {
+		case "q", "Q", "ctrl+c":
+			return m, tea.Quit
+		case "r", "R":
+			// Refresh remains safe: completion cancels it before invalidating caches.
+		default:
+			return m, nil
+		}
+	}
+
 	// Delete confirm flow.
 	if m.deleteConfirm {
 		switch msg.String() {

@@ -77,5 +77,6 @@ Developer and toolchain caches in `lib/clean/dev.sh` also follow `.claude/rules/
 ## Whitelist (`lib/manage/whitelist.sh`)
 
 - Whitelist absence must be a confirmed `ENOENT`, never a failed shell `-f` test. Both loaders check ancestors and symlink targets before selecting defaults or the legacy optimize list; inaccessible paths, broken links, non-files and probe failures stop the command. Diagnostics name the inaccessible ancestor when known. Locked by the whitelist loader and entrypoint cases in `tests/manage_whitelist.bats`.
+- Both the shared loader and whitelist editor preserve a final nonempty line without a trailing newline. A hand-edited protection must not disappear on load or after editing the list. Locked by the `last protection without a trailing newline` cases in `tests/manage_whitelist.bats`.
 - Whitelist inventory rules for package-manager rows are in `.claude/rules/clean-dev.md`.
 - Whitelist or management changes: run `MOLE_TEST_NO_AUTH=1 bats tests/manage_whitelist.bats tests/manage_sudo.bats`.

@@ -61,6 +61,7 @@ show_slim_help() {
     echo "Each app is slimmed on a copy that must pass code signing and Gatekeeper"
     echo "checks before it replaces the original, which moves to the Trash."
     echo "App updates bring the Intel code back."
+    echo "Apps protected by ~/.config/mole/whitelist are skipped."
     echo ""
     echo "Options:"
     echo "  --dry-run, -n     List apps and reclaimable space without changes"
@@ -135,6 +136,10 @@ slim_app_prefers_rosetta() {
 # Running apps are listed and refused only when slimming starts.
 slim_skip_reason() {
     local app="$1" check_running="${2:-true}"
+    if is_path_whitelisted "$app"; then
+        echo "whitelisted"
+        return
+    fi
     [[ -L "$app" ]] && {
         echo "symlink"
         return
@@ -593,6 +598,10 @@ slim_one_app() {
     local bytes="${SLIM_APP_BYTES[index]}"
 
     local reason identity
+    if ! load_mole_whitelist "$HOME"; then
+        record_slim_failure "$app" "whitelist unavailable"
+        return 0
+    fi
     reason=$(slim_skip_reason "$app")
     if [[ -n "$reason" ]]; then
         record_slim_failure "$app" "$reason"
@@ -650,6 +659,19 @@ slim_one_app() {
     if ! reason=$(slim_verify_copy "$copy" "$team" "$plan_file"); then
         slim_discard_stage "$stage"
         record_slim_failure "$app" "$reason"
+        return 0
+    fi
+
+    # Protection may change during the copy or signature checks. A failed
+    # reload is unknown, never permission to replace the original.
+    if ! load_mole_whitelist "$HOME"; then
+        slim_discard_stage "$stage"
+        record_slim_failure "$app" "whitelist unavailable"
+        return 0
+    fi
+    if is_path_whitelisted "$app"; then
+        slim_discard_stage "$stage"
+        record_slim_failure "$app" "whitelisted"
         return 0
     fi
 
@@ -816,6 +838,7 @@ slim_preflight() {
         printf 'mo slim needs an Apple Silicon Mac; on an Intel Mac the Intel code is the code that runs.\n' >&2
         return "$SLIM_EXIT_UNSUPPORTED"
     fi
+    load_mole_whitelist "$HOME" || return 1
     SLIM_WORK_DIR=$(create_temp_dir) || return 1
     return 0
 }

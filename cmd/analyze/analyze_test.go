@@ -5057,9 +5057,16 @@ func TestLiveScanCurrentRequestCompletes(t *testing.T) {
 	}
 	next, _ = m.Update(wait())
 	got := next.(model)
+	defer got.cancelBackgroundCacheWrites(nil)
 	if got.scanning || got.liveScanID != 0 {
 		t.Fatalf("empty directory did not complete: scanning=%v id=%d", got.scanning, got.liveScanID)
 	}
+	// Completion publishes the model before its cache writer finishes. Wait
+	// for that writer's final rename before TempDir removes its directory.
+	waitForTestCondition(t, "completed empty listing to reach disk cache", func() bool {
+		_, err := loadCacheFromDisk(got.path)
+		return err == nil
+	})
 }
 
 func TestLiveScanVariantsRejectSupersededStart(t *testing.T) {
