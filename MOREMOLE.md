@@ -11,7 +11,7 @@ moremole is a personal fork of [Mole](https://github.com/tw93/Mole) by tw93, mod
 - **AI models** checks your Ollama models for updates, downloads new ones from Ollama's library, and removes the ones you pick. If Ollama is off, it offers to turn it on, and turns it off again when done.
 - **Pick lists have a search line and open A–Z:** type to narrow the list, and sort by name, size or date. Installer files uses the same list, so it gains both.
 - **Optimize names what it applied,** or in a preview what it would apply, in the summary at the top.
-- **Update brings in Mole's latest changes and keeps moremole's.** Mole's own update would install the official release over this folder and erase them.
+- **Anyone can install it with one line, and Update MoreMole keeps it current.** People get the MoreMole releases you publish; your own folder brings in Mole's latest changes and keeps MoreMole's. Mole's own update never runs: it would install the official Mole over MoreMole.
 
 The moremole changes live in their own files, so Mole's updates merge cleanly:
 
@@ -27,14 +27,18 @@ The moremole changes live in their own files, so Mole's updates merge cleanly:
 | `lib/moremole/lists.sh` | Puts Installer files on the shared pick list |
 | `cmd/moremole-view/` | The command screen: runs a command inside the fixed frame, then shows its results |
 | `scripts/moremole-sync.sh` | Brings in Mole's latest changes |
+| `moremole-get.sh` | The installer: installs the newest MoreMole release, and updates a copy it installed |
+| `scripts/moremole-release.sh`, `scripts/moremole-release-build.sh`, `.github/workflows/moremole-release.yml` | Publishing a release: you tag it, GitHub tests, builds and publishes it |
+| `.github/README.md` | The front page on GitHub, shown instead of Mole's README |
 | `tests/moremole_*.bats`, `cmd/status/moremole_test.go`, `cmd/moremole-updates/*_test.go`, `cmd/moremole-models/*_test.go`, `cmd/moremole-view/*_test.go` | Tests for the above |
 | `mole`, `Makefile`, `lib/core/commands.sh`, `lib/core/common.sh`, `cmd/status/*.go` | A few marked lines (`moremole`) that hook the above in |
 | `lib/ui/menu_paginated.sh`, `lib/ui/app_selector.sh`, `bin/slim.sh`, `bin/installer.sh`, `bin/optimize.sh`, `lib/clean/project.sh` | Marked lines (`MoreMole`) for the search line, A–Z first, Optimize's names, and Purge's find showing what you type and starting with nothing selected; `tests/slim.bats`, `tests/uninstall_menu.bats`, `tests/purge.bats` and `tests/purge_menu_pty.py` have the tests that relied on the old behavior changed to match |
+| `tests/update.bats` | One marked line in its setup, so Mole's tests of its own updater keep running it; MoreMole never runs Mole's updater, which would install the official Mole over MoreMole |
 | Mole's commands: `bin/clean.sh`, `bin/completion.sh`, `bin/installer.sh`, `bin/purge.sh`, `bin/slim.sh`, `bin/touchid.sh`, `bin/uninstall.sh`, `lib/uninstall/batch.sh`, `lib/manage/whitelist.sh` | One `moremole_note_cancel` line at each place the user cancels (`tests/moremole_cancel.bats` checks they're all there) |
 
 ## Running it
 
-moremole runs straight from its folder. Set up the `moremole` command, with `mm` as a short name for it, once:
+moremole runs straight from its folder. This section is for your git folder; everyone else installs with one line (see Installing for everyone else), which runs the same setup. Set up the `moremole` command, with `mm` as a short name for it, once:
 
 ```sh
 cd ~/Developer/moremole
@@ -58,7 +62,7 @@ It's safe to run again. To undo it, delete `moremole`, `mm`, `mo` and `mole` fro
 
 Every command works from the command line and in scripts as in Mole: same commands, options, output and exit codes, and `moremole status --json` is unchanged. The menu's additions (the command screen, cancel) only happen when a command runs from the menu. The differences:
 
-- `moremole update` (and `mo update` once `mo` runs MoreMole) brings in Mole's latest changes and rebuilds, instead of installing a Mole release; the help screen leaves out Mole's `--force` and `--nightly`, which MoreMole's update does not use.
+- `moremole update` (and `mo update` once `mo` runs MoreMole) updates MoreMole the way it was installed (see Updating), instead of installing a Mole release; the help screen leaves out Mole's `--force` and `--nightly`, which MoreMole's update does not use.
 - `moremole updates` (Software updates) and `moremole models` (AI models) are new.
 - The help screen names commands `moremole ...`; hints inside commands still say `mo ...`.
 - `remove` is Mole's own and is not in the menu: it would move `~/.config/mole`, with your menu commands and protected lists, to the Trash.
@@ -105,7 +109,7 @@ Every command works from the command line and in scripts as in Mole: same comman
 - Analyze and Status are full-screen already and run on their own; they come back as soon as you quit them.
 - If the command screen is not built yet, commands run on a clear screen and the menu asks for Enter afterwards, as before.
 - If you cancel instead (Q or ESC in a pick list, or at the final "Enter confirm, ESC cancel" step), the menu comes back straight away, with nothing to dismiss. This covers Clean's password step, Software removal, Purge, Installer files, Slim, Touch ID, Shell completion, Software updates, AI models and the Protected caches and Protected items lists.
-- Update MoreMole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version.
+- Update MoreMole is the exception: it ends the menu, because it may have changed moremole's files. Type `mm` to start the new version. How it updates depends on how MoreMole was installed (see Updating).
 - A window too short for every row scrolls with the arrow keys, and says so under the list.
 
 ## Pick lists
@@ -190,12 +194,60 @@ For [Ollama](https://ollama.com) models. Choose **AI models** in the menu, or ru
 - Not yet tried against the live library page and registry, which weren't reachable while it was written; the tests use saved copies of their answers.
 - AI models is a moremole addition, like Software updates.
 
-## Getting Mole's updates
+## Updating
 
-Choose **Update MoreMole** in the menu, press U when an update notice shows, or run:
+Choose **Update MoreMole** in the menu, press U when an update notice shows, or run `moremole update`. What it does depends on how this copy was installed:
+
+| Copy | Update MoreMole |
+|---|---|
+| Installed with the one-line installer (`~/.local/share/moremole`) | Installs the newest MoreMole release: downloads it, checks it against its checksums, and puts it in place of the old copy. Your commands and settings in `~/.config/mole` stay. History records it. |
+| Your git folder, which has Mole as its `upstream` remote | Brings in Mole's latest changes (below) |
+| Another git copy (a clone without `upstream`) | Says to run `git pull`, then `make build` |
+| Anything else (a downloaded zip, say) | Says to install with the one-line installer |
+
+The menu's update notice works the same way: a copy from the installer is told when a newer MoreMole release is out (checked once a day, in the background); your git folder is told when Mole has a new release to bring in.
+
+### Bringing in Mole's changes (your git folder)
 
 ```sh
 bash scripts/moremole-sync.sh
 ```
 
 It first brings down any moremole changes already on GitHub, then copies Mole's latest changes into `main`, merges them into the `moremole` branch, and pushes both to GitHub. When one of the Go parts (Analyze, Status, Software updates, AI models, the command screen) is older than its code, including after a `git pull`, it rebuilds them (`make build`). It stops and says what to do if you have uncommitted changes, are on another branch, or if Mole changed the same lines as moremole.
+
+People who installed MoreMole get these changes with the next release you publish.
+
+## Installing for everyone else
+
+The front page (`.github/README.md`) gives this line to paste into Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/RosBradley/moremole/moremole/moremole-get.sh | bash
+```
+
+`moremole-get.sh` asks GitHub for the newest MoreMole release, downloads its files and the Go parts built for that Mac (Apple silicon or Intel), and checks each against the release's `SHA256SUMS`; a mismatch stops it with nothing changed. It installs to `~/.local/share/moremole` and runs `scripts/moremole-install.sh` from there to set up the commands, so it needs no Go, no git and no password. Running it again repairs the commands. It refuses to replace a `~/.local/share/moremole` it didn't put there.
+
+## Publishing a release
+
+People only get what you publish, so a release is your "this version is ready". When the `moremole` branch is pushed and you've tried it:
+
+```sh
+bash scripts/moremole-release.sh
+```
+
+It checks that you're on `moremole` with everything committed and pushed, shows the version (today's date, such as `2026.10.26`; a second release that day is `2026.10.26.2`), and asks before publishing (Enter publishes, ESC cancels). Then it pushes the tag `moremole-2026.10.26`. GitHub takes it from there (`.github/workflows/moremole-release.yml`, about 10 minutes):
+
+1. checks that the tag is on the `moremole` branch;
+2. runs the Go tests and MoreMole's tests (`tests/moremole_*.bats`) on a Mac;
+3. builds the release files (`scripts/moremole-release-build.sh`): the files of that commit, the Go parts for Apple silicon and for Intel, and their checksums;
+4. records that GitHub built them (an attestation anyone can check with `gh attestation verify`);
+5. publishes the release, with notes listing the changes since the last one.
+
+If a step fails, nothing is published: fix it, push, and run the script again. A commit whose tag never became a release can be tagged again after removing the tag; the script says how.
+
+You can add it to the menu under My commands, as `bash ~/Developer/moremole/scripts/moremole-release.sh`.
+
+One-time setup on GitHub:
+
+- **Actions** must be on for the fork (the Actions tab offers to turn them on). Mole's own workflows then run on pushes to `main` too; turn them off one by one in the Actions tab if you don't want them. Mole's Release only answers to `V` tags and its contributors robot only runs in tw93's repository, so neither touches MoreMole.
+- **Default branch:** set it to `moremole` (Settings, General), so the repository's page shows MoreMole's front page and files instead of Mole's.
